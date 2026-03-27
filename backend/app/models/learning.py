@@ -11,8 +11,12 @@ JSONType = JSONB().with_variant(db.JSON(), 'sqlite')
 CUSTOM_CLASSROOM_MODULE_PREFIX = 'teacher-class-'
 DEFAULT_ASSIGNMENT_TYPE = 'lesson_practice'
 DEFAULT_SUBMISSION_FORMAT = 'text'
+DEFAULT_TASK_EVALUATION_MODE = 'manual'
+DEFAULT_CODE_LANGUAGE = 'python'
 VALID_ASSIGNMENT_TYPES = {'lesson_practice', 'mini_project', 'quiz', 'reflection'}
 VALID_SUBMISSION_FORMATS = {'text', 'code', 'link', 'mixed'}
+VALID_TASK_EVALUATION_MODES = {'manual', 'keywords', 'stdin_stdout'}
+VALID_CODE_LANGUAGES = {'python', 'javascript'}
 ASSIGNMENT_TYPE_LABELS = {
     'lesson_practice': 'Практика по уроку',
     'mini_project': 'Мини-проект',
@@ -30,6 +34,133 @@ def normalize_assignment_type(value: str | None) -> str:
 def normalize_submission_format(value: str | None) -> str:
     normalized = (value or DEFAULT_SUBMISSION_FORMAT).strip().lower()
     return normalized if normalized in VALID_SUBMISSION_FORMATS else DEFAULT_SUBMISSION_FORMAT
+
+
+def _safe_int(value, default: int, minimum: int | None = None, maximum: int | None = None) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    if minimum is not None:
+        parsed = max(parsed, minimum)
+    if maximum is not None:
+        parsed = min(parsed, maximum)
+    return parsed
+
+
+def _string_list(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    rows: list[str] = []
+    for item in value:
+        text = str(item or '').strip()
+        if text:
+            rows.append(text)
+    return rows
+
+
+def _test_case_list(value) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    rows: list[dict] = []
+    for index, item in enumerate(value, start=1):
+        if not isinstance(item, dict):
+            continue
+        test_input = str(item.get('input') if item.get('input') is not None else item.get('stdin') or '')
+        expected = str(item.get('expected') if item.get('expected') is not None else item.get('stdout') or '')
+        label = str(item.get('label') or f'Тест {index}').strip() or f'Тест {index}'
+        if not test_input and not expected:
+            continue
+        rows.append({
+            'label': label,
+            'input': test_input,
+            'expected': expected,
+        })
+    return rows
+
+
+def normalize_code_language(value: str | None, default: str | None = None) -> str:
+    normalized = (value or default or DEFAULT_CODE_LANGUAGE).strip().lower()
+    return normalized if normalized in VALID_CODE_LANGUAGES else (default or DEFAULT_CODE_LANGUAGE)
+
+
+def normalize_task_evaluation_mode(
+    value: str | None,
+    *,
+    is_custom_lesson: bool = False,
+    task_type: str | None = None,
+    has_keywords: bool = False,
+    has_tests: bool = False,
+) -> str:
+    normalized = (value or '').strip().lower()
+    is_code_task = (task_type or '').strip().lower() == 'code'
+    if is_code_task:
+        return 'stdin_stdout'
+    if normalized in VALID_TASK_EVALUATION_MODES:
+        return normalized
+    if has_tests:
+        return 'stdin_stdout'
+    if has_keywords and not is_custom_lesson:
+        return 'keywords'
+    return DEFAULT_TASK_EVALUATION_MODE if is_custom_lesson else ('keywords' if has_keywords else DEFAULT_TASK_EVALUATION_MODE)
+
+
+def normalize_task_validation(
+    validation: dict | None,
+    *,
+    is_custom_lesson: bool = False,
+    task_type: str | None = None,
+    age_group: str | None = None,
+) -> dict:
+    raw = validation if isinstance(validation, dict) else {}
+    keywords = _string_list(raw.get('keywords'))
+    tests = _test_case_list(raw.get('tests'))
+    is_code_task = (task_type or '').strip().lower() == 'code'
+    default_language = 'javascript' if (age_group or '').strip().lower() == 'senior' else DEFAULT_CODE_LANGUAGE
+    evaluation_mode = normalize_task_evaluation_mode(
+        raw.get('evaluation_mode') or raw.get('mode'),
+        is_custom_lesson=is_custom_lesson,
+        task_type=task_type,
+        has_keywords=bool(keywords),
+        has_tests=bool(tests),
+    )
+    if is_code_task:
+        keywords = []
+    runner = 'stdin_stdout' if evaluation_mode == 'stdin_stdout' else None
+    language = normalize_code_language(raw.get('language'), default=default_language)
+    return {
+        'evaluation_mode': evaluation_mode,
+        'runner': runner,
+        'language': language if task_type == 'code' or evaluation_mode == 'stdin_stdout' else None,
+        'keywords': keywords,
+        'tests': tests,
+        'time_limit_ms': _safe_int(raw.get('time_limit_ms'), 2000, minimum=500, maximum=10000),
+        'memory_limit_mb': _safe_int(raw.get('memory_limit_mb'), 128, minimum=32, maximum=1024),
+    }
+
+
+def public_task_validation(
+    validation: dict | None,
+    *,
+    is_custom_lesson: bool = False,
+    task_type: str | None = None,
+    age_group: str | None = None,
+) -> dict:
+    normalized = normalize_task_validation(
+        validation,
+        is_custom_lesson=is_custom_lesson,
+        task_type=task_type,
+        age_group=age_group,
+    )
+    return {
+        'evaluation_mode': normalized['evaluation_mode'],
+        'runner': normalized['runner'],
+        'language': normalized['language'],
+        'keywords': normalized['keywords'],
+        'tests_count': len(normalized['tests']),
+        'time_limit_ms': normalized['time_limit_ms'] if normalized['runner'] == 'stdin_stdout' else None,
+        'memory_limit_mb': normalized['memory_limit_mb'] if normalized['runner'] == 'stdin_stdout' else None,
+    }
 
 
 def encode_assignment_description(
@@ -203,6 +334,25 @@ class Task(db.Model):
 
     lesson = db.relationship('Lesson', back_populates='tasks')
 
+    def normalized_validation(self, include_private: bool = False) -> dict:
+        payload = normalize_task_validation(
+            self.validation,
+            is_custom_lesson=bool(self.lesson and self.lesson.module.is_custom_classroom_module),
+            task_type=self.task_type,
+            age_group=self.lesson.module.age_group if self.lesson else None,
+        )
+        if include_private:
+            return payload
+        return public_task_validation(
+            self.validation,
+            is_custom_lesson=bool(self.lesson and self.lesson.module.is_custom_classroom_module),
+            task_type=self.task_type,
+            age_group=self.lesson.module.age_group if self.lesson else None,
+        )
+
+    def requires_teacher_review(self) -> bool:
+        return bool(self.lesson and self.lesson.module.is_custom_classroom_module and self.normalized_validation(include_private=True)['evaluation_mode'] == 'manual')
+
     def to_dict(self) -> dict:
         return {
             'id': self.id,
@@ -210,10 +360,18 @@ class Task(db.Model):
             'title': self.title,
             'prompt': self.prompt,
             'starter_code': self.starter_code,
-            'validation': self.validation,
+            'validation': self.normalized_validation(),
             'hints': self.hints,
             'xp_reward': self.xp_reward,
         }
+
+
+def lesson_requires_teacher_review(lesson: Lesson) -> bool:
+    if not lesson.module.is_custom_classroom_module:
+        return False
+    if not lesson.tasks:
+        return True
+    return any(task.requires_teacher_review() for task in lesson.tasks)
 
 
 class Quiz(db.Model):

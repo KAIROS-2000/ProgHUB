@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Editor from '@monaco-editor/react'
 import { BlocklyPlayground } from '@/components/blockly-playground'
 import { api } from '@/lib/api'
-import { LessonDetail, ProgressItem, QuizItem, QuizQuestion } from '@/types'
+import { JudgeReport, LessonDetail, ProgressItem, QuizItem, QuizQuestion } from '@/types'
 
 function moveItem(list: string[], from: number, to: number) {
   const next = [...list]
@@ -180,6 +180,7 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
   const [quizPassed, setQuizPassed] = useState(false)
   const [savingCompletion, setSavingCompletion] = useState(false)
   const [progress, setProgress] = useState<ProgressItem | null>(null)
+  const [judgeReport, setJudgeReport] = useState<JudgeReport | null>(null)
   const isTeacherLesson = Boolean(lesson?.is_custom)
 
   useEffect(() => {
@@ -197,12 +198,24 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
         setQuizPassed(isFinished)
         setResult('')
         setResultTone('neutral')
+        setJudgeReport(null)
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Не удалось загрузить урок'))
   }, [lessonId])
 
   const quiz = useMemo<QuizItem | null>(() => lesson?.quizzes?.[0] || null, [lesson])
   const task = lesson?.tasks?.[0]
+  const taskValidation = task?.validation
+  const taskEvaluationMode = taskValidation?.evaluation_mode || 'manual'
+  const taskNeedsTeacherReview = Boolean(isTeacherLesson && taskEvaluationMode === 'manual')
+  const lessonNeedsTeacherReview = Boolean(isTeacherLesson && (!task || taskNeedsTeacherReview))
+  const usesBlockly = Boolean(lesson?.module.age_group === 'junior' && task?.task_type !== 'code' && taskValidation?.runner !== 'stdin_stdout')
+  const usesCodeEditor = Boolean(task?.task_type === 'code' || taskValidation?.runner === 'stdin_stdout')
+  const editorLanguage = taskValidation?.language === 'javascript'
+    ? 'javascript'
+    : lesson?.module.age_group === 'senior'
+      ? 'javascript'
+      : 'python'
   const completedHints = task ? Math.min(shownHints, task.hints.length) : 0
   const answeredQuizCount = useMemo(() => {
     if (!quiz) return 0
@@ -232,15 +245,26 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
     if (!task) return
     setLoadingTask(true)
     try {
-      const data = await api<{ feedback: string; score: number; passed: boolean; xp_awarded: number; progress: ProgressItem }>(`/tasks/${task.id}/submit`, {
+      const data = await api<{
+        feedback: string
+        score: number
+        passed: boolean
+        xp_awarded: number
+        progress: ProgressItem
+        judge_report?: JudgeReport | null
+        requires_teacher_review?: boolean
+      }>(`/tasks/${task.id}/submit`, {
         method: 'POST',
         body: JSON.stringify({ answer }),
       }, true)
-      setResult(isTeacherLesson ? data.feedback : `${data.feedback} Результат: ${data.score}%. ${data.xp_awarded ? `+${data.xp_awarded} XP.` : ''}`)
+      const requiresTeacherReview = Boolean(data.requires_teacher_review)
+      setJudgeReport(data.judge_report || null)
+      setResult(requiresTeacherReview ? data.feedback : `${data.feedback} Результат: ${data.score}%. ${data.xp_awarded ? `+${data.xp_awarded} XP.` : ''}`)
       setResultTone(data.passed ? 'success' : 'warning')
       setTaskPassed(data.passed)
       setProgress(data.progress)
     } catch (e) {
+      setJudgeReport(null)
       setResult(e instanceof Error ? e.message : 'Не удалось отправить решение.')
       setResultTone('warning')
     } finally {
@@ -341,7 +365,7 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
         <section className="codequest-card p-5">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Завершение</p>
           <p className="mt-3 text-sm leading-6 text-slate-600">
-            {isTeacherLesson
+            {lessonNeedsTeacherReview
               ? 'Кнопка отправит урок учителю на проверку и вернёт тебя на страницу профиля.'
               : 'Кнопка сохранит текущий процент выполнения урока и вернёт тебя на страницу профиля.'}
           </p>
@@ -351,7 +375,7 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
             onClick={finishLesson}
             className="mt-4 w-full rounded-full bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
           >
-            {savingCompletion ? 'Сохраняем и возвращаем...' : isTeacherLesson ? 'Отправить на проверку' : 'Завершить урок'}
+            {savingCompletion ? 'Сохраняем и возвращаем...' : lessonNeedsTeacherReview ? 'Отправить на проверку' : 'Завершить урок'}
           </button>
         </section>
 
@@ -431,7 +455,7 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
           <article id="practice" className="codequest-card p-6">
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
               <div>
-                {lesson.module.age_group === 'junior' && (
+                {usesBlockly && (
                   <div className="mb-5 space-y-3">
                     <BlocklyPlayground
                       keywords={task.validation?.keywords || []}
@@ -447,12 +471,24 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
                     <p className="text-sm font-bold uppercase tracking-[0.2em] text-sky-600">Практика</p>
                     <h2 className="mt-2 text-2xl font-black text-slate-900">{task.title}</h2>
                   </div>
-                  {!isTeacherLesson && task.xp_reward > 0 && (
-                    <span className="rounded-full bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">Награда {task.xp_reward} XP</span>
-                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {task.validation.runner === 'stdin_stdout' && (
+                      <>
+                        <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">
+                          {task.validation.language === 'javascript' ? 'JavaScript' : 'Python'}
+                        </span>
+                        <span className="rounded-full bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700">
+                          Автотесты {task.validation.tests_count || 0}
+                        </span>
+                      </>
+                    )}
+                    {!taskNeedsTeacherReview && !isTeacherLesson && task.xp_reward > 0 && (
+                      <span className="rounded-full bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">Награда {task.xp_reward} XP</span>
+                    )}
+                  </div>
                 </div>
                 <p className="mt-3 text-sm leading-7 text-slate-600">{task.prompt}</p>
-                {lesson.module.age_group === 'junior' ? (
+                {usesBlockly ? (
                   <div className="mt-5 overflow-hidden rounded-[24px] border border-slate-200 bg-white p-3">
                     <textarea
                       value={answer}
@@ -461,20 +497,29 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
                       className="h-[340px] w-full resize-y rounded-[18px] border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-800 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
                     />
                   </div>
-                ) : (
+                ) : usesCodeEditor ? (
                   <div className="mt-5 overflow-hidden rounded-[24px] border border-slate-200">
                     <Editor
                       height="360px"
-                      defaultLanguage={lesson.module.age_group === 'senior' ? 'javascript' : 'python'}
+                      defaultLanguage={editorLanguage}
                       value={answer}
                       onChange={(value) => setAnswer(value || '')}
                       theme="vs-light"
                     />
                   </div>
+                ) : (
+                  <div className="mt-5 overflow-hidden rounded-[24px] border border-slate-200 bg-white p-3">
+                    <textarea
+                      value={answer}
+                      onChange={(e) => setAnswer(e.target.value)}
+                      placeholder="Напиши ответ в свободной форме."
+                      className="h-[340px] w-full resize-y rounded-[18px] border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-800 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                    />
+                  </div>
                 )}
                 <div className="mt-4 flex flex-wrap gap-3">
                   <button disabled={loadingTask} onClick={submitTask} className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
-                    {loadingTask ? 'Проверяем…' : isTeacherLesson ? 'Сохранить ответ' : 'Проверить задачу'}
+                    {loadingTask ? 'Проверяем…' : taskNeedsTeacherReview ? 'Сохранить ответ' : 'Проверить задачу'}
                   </button>
                   <button
                     type="button"
@@ -492,6 +537,68 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
                     {completedHints >= task.hints.length ? 'Подсказки закончились' : 'Показать подсказку'}
                   </button>
                 </div>
+                {judgeReport && (
+                  <div className="mt-5 rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Автопроверка</p>
+                        <p className="mt-1 text-lg font-black text-slate-900">{judgeReport.feedback}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2 text-sm font-semibold">
+                        <span className="rounded-full bg-white px-3 py-1 text-slate-700">{judgeReport.score}%</span>
+                        {typeof judgeReport.tests_total === 'number' && (
+                          <span className="rounded-full bg-white px-3 py-1 text-slate-700">
+                            {judgeReport.tests_passed || 0}/{judgeReport.tests_total} тестов
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {judgeReport.mode === 'keywords' && (
+                      <div className="mt-3 space-y-2 text-sm text-slate-600">
+                        <p>Совпало ориентиров: {judgeReport.tests_passed || 0} из {judgeReport.tests_total || 0}.</p>
+                        {(judgeReport.missing_keywords || []).length > 0 && (
+                          <p>Не найдены: {(judgeReport.missing_keywords || []).join(', ')}.</p>
+                        )}
+                      </div>
+                    )}
+                    {judgeReport.mode === 'stdin_stdout' && (
+                      <div className="mt-4 space-y-3">
+                        {(judgeReport.results || []).map((item) => (
+                          <div key={`${item.label}-${item.input}`} className="rounded-2xl bg-white p-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <p className="font-semibold text-slate-900">{item.label}</p>
+                              <span className={`rounded-full px-3 py-1 text-xs font-bold ${item.passed ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                {item.passed ? 'OK' : 'Ошибка'}
+                              </span>
+                            </div>
+                            <div className="mt-3 grid gap-3 text-xs leading-6 text-slate-600 md:grid-cols-2">
+                              <div>
+                                <p className="font-bold uppercase tracking-[0.14em] text-slate-400">Вход</p>
+                                <pre className="mt-1 overflow-auto rounded-2xl bg-slate-950 p-3 text-emerald-200">{item.input || '(пусто)'}</pre>
+                              </div>
+                              <div>
+                                <p className="font-bold uppercase tracking-[0.14em] text-slate-400">Ожидалось</p>
+                                <pre className="mt-1 overflow-auto rounded-2xl bg-slate-950 p-3 text-emerald-200">{item.expected || '(пусто)'}</pre>
+                              </div>
+                            </div>
+                            {!item.passed && (
+                              <div className="mt-3 grid gap-3 text-xs leading-6 text-slate-600 md:grid-cols-2">
+                                <div>
+                                  <p className="font-bold uppercase tracking-[0.14em] text-slate-400">Получено</p>
+                                  <pre className="mt-1 overflow-auto rounded-2xl bg-slate-950 p-3 text-amber-200">{item.actual || '(пусто)'}</pre>
+                                </div>
+                                <div>
+                                  <p className="font-bold uppercase tracking-[0.14em] text-slate-400">Ошибка</p>
+                                  <pre className="mt-1 overflow-auto rounded-2xl bg-slate-950 p-3 text-rose-200">{item.stderr || 'Нет системной ошибки, просто другой вывод.'}</pre>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <aside className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">

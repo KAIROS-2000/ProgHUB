@@ -18,6 +18,7 @@ from ..models.learning import (
     ParentInvite,
     Quiz,
     Task,
+    normalize_task_validation,
 )
 from ..models.user import User, UserRole
 
@@ -101,7 +102,10 @@ def _lesson_payload(
     answer_keywords: list[str],
     quiz_questions: list[dict],
     starter_code: str = '',
+    task_validation: dict | None = None,
 ) -> dict:
+    if starter_code and task_validation is None:
+        raise ValueError(f'Code lesson "{title}" requires explicit stdin/stdout tests in task_validation.')
     return {
         'title': title,
         'summary': summary,
@@ -118,9 +122,89 @@ def _lesson_payload(
             'title': practice_title,
             'prompt': practice_prompt,
             'starter_code': starter_code,
-            'validation': {'keywords': answer_keywords},
+            'validation': task_validation or {'keywords': answer_keywords},
         },
         'quiz': quiz_questions,
+    }
+
+
+def _stdio_validation(language: str, tests: list[dict], time_limit_ms: int = 2000, memory_limit_mb: int = 128) -> dict:
+    return {
+        'evaluation_mode': 'stdin_stdout',
+        'language': language,
+        'tests': tests,
+        'time_limit_ms': time_limit_ms,
+        'memory_limit_mb': memory_limit_mb,
+    }
+
+
+def _legacy_seeded_code_task_updates() -> dict[tuple[str, str], dict]:
+    return {
+        ('junior-computer', 'Поздоровайся с миром'): {
+            'starter_code': 'print("Привет, мир!")\n',
+            'validation': _stdio_validation(
+                'python',
+                [
+                    {'label': 'Тест 1', 'input': '', 'expected': 'Привет, мир!\n'},
+                ],
+            ),
+        },
+        ('middle-python-intro', 'Выведи сообщение'): {
+            'starter_code': 'print("Я изучаю Python")\n',
+            'validation': _stdio_validation(
+                'python',
+                [
+                    {'label': 'Тест 1', 'input': '', 'expected': 'Я изучаю Python\n'},
+                ],
+            ),
+        },
+        ('middle-python-intro', 'Создай переменные'): {
+            'starter_code': 'name = "Аня"\nage = 12\nprint(name, age)\n',
+            'validation': _stdio_validation(
+                'python',
+                [
+                    {'label': 'Тест 1', 'input': '', 'expected': 'Аня 12\n'},
+                ],
+            ),
+        },
+        ('middle-python-intro', 'Поздоровайся по имени'): {
+            'starter_code': 'name = input().strip()\nprint(f"Привет, {name}")\n',
+            'validation': _stdio_validation(
+                'python',
+                [
+                    {'label': 'Тест 1', 'input': 'Аня\n', 'expected': 'Привет, Аня\n'},
+                    {'label': 'Тест 2', 'input': 'Тимур\n', 'expected': 'Привет, Тимур\n'},
+                ],
+            ),
+        },
+        ('middle-conditions', 'Проверь возраст'): {
+            'starter_code': 'age = int(input())\nif age >= 12:\n    print("Средняя группа")\nelse:\n    print("Младшая группа")\n',
+            'validation': _stdio_validation(
+                'python',
+                [
+                    {'label': 'Тест 1', 'input': '12\n', 'expected': 'Средняя группа\n'},
+                    {'label': 'Тест 2', 'input': '9\n', 'expected': 'Младшая группа\n'},
+                ],
+            ),
+        },
+        ('middle-functions', 'Создай greet'): {
+            'starter_code': 'def greet(name):\n    print(f"Привет, {name}")\n\ngreet("Маша")\n',
+            'validation': _stdio_validation(
+                'python',
+                [
+                    {'label': 'Тест 1', 'input': '', 'expected': 'Привет, Маша\n'},
+                ],
+            ),
+        },
+        ('senior-js-basics', 'Создай переменную score'): {
+            'starter_code': 'let score = 10;\nconsole.log(score);\n',
+            'validation': _stdio_validation(
+                'javascript',
+                [
+                    {'label': 'Тест 1', 'input': '', 'expected': '10\n'},
+                ],
+            ),
+        },
     }
 
 
@@ -167,7 +251,8 @@ def seed_modules() -> None:
                         _question_single('j15', 'Что увидит пользователь?', ['Ничего', 'Сообщение', 'Файл', 'Пароль'], 1),
                         _question_multiple('j16', 'Что нужно хорошей команде?', ['Быть понятной', 'Иметь цель', 'Быть случайной', 'Давать результат'], [0, 1, 3]),
                     ],
-                    'print("Привет, мир!")',
+                    'print("Привет, мир!")\n',
+                    _legacy_seeded_code_task_updates()[('junior-computer', 'Поздоровайся с миром')]['validation'],
                 ),
             ],
         },
@@ -229,7 +314,8 @@ def seed_modules() -> None:
                         _question_single('m11', 'Для вывода в Python используют...', ['echo', 'print()', 'show()', 'emit()'], 1),
                         _question_order('m12', 'Поставь действия по порядку: написать код, запустить, увидеть вывод.', ['написать код', 'увидеть вывод', 'запустить'], ['написать код', 'запустить', 'увидеть вывод']),
                     ],
-                    'print("Я изучаю Python")',
+                    'print("Я изучаю Python")\n',
+                    _legacy_seeded_code_task_updates()[('middle-python-intro', 'Выведи сообщение')]['validation'],
                 ),
                 _lesson_payload(
                     'Переменные и типы',
@@ -242,7 +328,8 @@ def seed_modules() -> None:
                         _question_multiple('m13', 'Что можно хранить в переменной?', ['Число', 'Строку', 'Список', 'Картинку в коде'], [0, 1, 2]),
                         _question_match('m14', 'Сопоставь пример и тип данных.', ['12', '"Аня"'], ['число', 'строка'], {'12': 'число', '"Аня"': 'строка'}),
                     ],
-                    'name = "Аня"\nage = 12\nprint(name, age)',
+                    'name = "Аня"\nage = 12\nprint(name, age)\n',
+                    _legacy_seeded_code_task_updates()[('middle-python-intro', 'Создай переменные')]['validation'],
                 ),
                 _lesson_payload(
                     'input() и print()',
@@ -255,7 +342,8 @@ def seed_modules() -> None:
                         _question_single('m15', 'Что делает input()?', ['Удаляет строку', 'Принимает ввод', 'Красит текст', 'Считает XP'], 1),
                         _question_order('m16', 'Расставь шаги общения с пользователем.', ['Показать вопрос', 'Получить ответ', 'Вывести приветствие'], ['Показать вопрос', 'Получить ответ', 'Вывести приветствие']),
                     ],
-                    'name = input("Как тебя зовут? ")\nprint("Привет,", name)',
+                    'name = input().strip()\nprint(f"Привет, {name}")\n',
+                    _legacy_seeded_code_task_updates()[('middle-python-intro', 'Поздоровайся по имени')]['validation'],
                 ),
             ],
         },
@@ -273,7 +361,8 @@ def seed_modules() -> None:
                         _question_single('m21', 'Когда срабатывает else?', ['Всегда первым', 'Если условие не выполнилось', 'Только на login', 'При цикле'], 1),
                         _question_match('m22', 'Сопоставь сравнение и смысл.', ['>=', '=='], ['больше или равно', 'равно'], {'>=': 'больше или равно', '==': 'равно'}),
                     ],
-                    'age = 12\nif age >= 12:\n    print("Средняя группа")\nelse:\n    print("Младшая группа")',
+                    'age = int(input())\nif age >= 12:\n    print("Средняя группа")\nelse:\n    print("Младшая группа")\n',
+                    _legacy_seeded_code_task_updates()[('middle-conditions', 'Проверь возраст')]['validation'],
                 ),
                 _lesson_payload(
                     'Логические операторы',
@@ -315,7 +404,8 @@ def seed_modules() -> None:
                         _question_single('m31', 'Чем полезна функция?', ['Удаляет ошибки автоматически', 'Повторно использует код', 'Создаёт таблицу', 'Меняет браузер'], 1),
                         _question_match('m32', 'Соедини часть функции и её роль.', ['def', 'return'], ['создаёт функцию', 'возвращает значение'], {'def': 'создаёт функцию', 'return': 'возвращает значение'}),
                     ],
-                    'def greet(name):\n    print("Привет,", name)\n\ngreet("Маша")',
+                    'def greet(name):\n    print(f"Привет, {name}")\n\ngreet("Маша")\n',
+                    _legacy_seeded_code_task_updates()[('middle-functions', 'Создай greet')]['validation'],
                 ),
                 _lesson_payload(
                     'Параметры и return',
@@ -360,7 +450,8 @@ def seed_modules() -> None:
                         _question_single('s11', 'Что выводит результат в JS?', ['print()', 'console.log()', 'echo()', 'input()'], 1),
                         _question_match('s12', 'Соедини JS-ключевое слово и смысл.', ['let', 'const'], ['переменная, которую можно менять', 'значение без переназначения'], {'let': 'переменная, которую можно менять', 'const': 'значение без переназначения'}),
                     ],
-                    'let score = 10;\nconsole.log(score);',
+                    'let score = 10;\nconsole.log(score);\n',
+                    _legacy_seeded_code_task_updates()[('senior-js-basics', 'Создай переменную score')]['validation'],
                 ),
                 _lesson_payload(
                     'Условия в JS',
@@ -620,10 +711,51 @@ def seed_forum() -> None:
     db.session.commit()
 
 
+def repair_legacy_code_task_validations() -> None:
+    updates = _legacy_seeded_code_task_updates()
+    changed = False
+    for task in Task.query.join(Lesson).join(Module).all():
+        if task.task_type != 'code':
+            continue
+
+        normalized = normalize_task_validation(
+            task.validation,
+            is_custom_lesson=task.lesson.module.is_custom_classroom_module,
+            task_type=task.task_type,
+            age_group=task.lesson.module.age_group,
+        )
+        key = (task.lesson.module.slug, task.title)
+        update = updates.get(key)
+        if update:
+            target_starter_code = update['starter_code']
+            target_validation = normalize_task_validation(
+                update['validation'],
+                is_custom_lesson=task.lesson.module.is_custom_classroom_module,
+                task_type='code',
+                age_group=task.lesson.module.age_group,
+            )
+            if task.starter_code != target_starter_code:
+                task.starter_code = target_starter_code
+                changed = True
+            if task.validation != target_validation:
+                task.validation = target_validation
+                changed = True
+            continue
+
+        # Code tasks always use the real stdin/stdout judge.
+        if task.validation != normalized:
+            task.validation = normalized
+            changed = True
+
+    if changed:
+        db.session.commit()
+
+
 def seed_all(enable_demo_data: bool = True) -> None:
     bootstrap_superadmin()
     seed_achievements()
     seed_modules()
+    repair_legacy_code_task_validations()
     if enable_demo_data:
         seed_demo_users()
         seed_classes_and_assignments()

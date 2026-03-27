@@ -6,8 +6,10 @@ import { api } from '@/lib/api'
 import {
   AssignmentItem,
   ClassroomItem,
+  CodeTaskLanguage,
   LessonCatalogItem,
   SubmissionItem,
+  TaskEvaluationMode,
   TeacherClassDetail,
   TeacherOverviewData,
 } from '@/types'
@@ -18,6 +20,33 @@ type SubmissionFormat = AssignmentItem['submission_format']
 type Difficulty = 'easy' | 'medium' | 'hard'
 type LessonBlueprintKey = 'guided' | 'skills' | 'project' | 'revision'
 type LessonPracticeMode = 'none' | 'text' | 'code'
+
+interface LessonJudgeTestCase {
+  input: string
+  expected: string
+}
+
+interface LessonFormState {
+  title: string
+  summary: string
+  theory_text: string
+  key_points: string
+  interactive_steps: string
+  task_title: string
+  task_prompt: string
+  answer_keywords: string
+  starter_code: string
+  task_hints: string
+  age_group: 'junior' | 'middle' | 'senior'
+  duration_minutes: string
+  passing_score: string
+  task_xp_reward: string
+  evaluation_mode: TaskEvaluationMode
+  programming_language: CodeTaskLanguage
+  time_limit_ms: string
+  memory_limit_mb: string
+  judge_tests: LessonJudgeTestCase[]
+}
 
 interface LessonBlueprint {
   label: string
@@ -153,37 +182,47 @@ const EMPTY_ASSIGNMENT_FORM: AssignmentFormState = {
   resources: '',
 }
 
-const EMPTY_LESSON_FORM: {
-  title: string
-  summary: string
-  theory_text: string
-  key_points: string
-  interactive_steps: string
-  task_title: string
-  task_prompt: string
-  answer_keywords: string
-  starter_code: string
-  task_hints: string
-  age_group: 'junior' | 'middle' | 'senior'
-  duration_minutes: string
-  passing_score: string
-  task_xp_reward: string
-} = {
-  title: '',
-  summary: '',
-  theory_text: '',
-  key_points: '',
-  interactive_steps: '',
-  task_title: '',
-  task_prompt: '',
-  answer_keywords: '',
-  starter_code: '',
-  task_hints: '',
-  age_group: 'middle',
-  duration_minutes: '10',
-  passing_score: '70',
-  task_xp_reward: '30',
+function defaultProgrammingLanguage(ageGroup: 'junior' | 'middle' | 'senior'): CodeTaskLanguage {
+  return ageGroup === 'senior' ? 'javascript' : 'python'
 }
+
+function defaultEvaluationMode(practiceMode: LessonPracticeMode): TaskEvaluationMode {
+  if (practiceMode === 'code') return 'stdin_stdout'
+  return 'manual'
+}
+
+function createEmptyJudgeTest(): LessonJudgeTestCase {
+  return { input: '', expected: '' }
+}
+
+function buildEmptyLessonForm(
+  ageGroup: 'junior' | 'middle' | 'senior' = 'middle',
+  practiceMode: LessonPracticeMode = 'text',
+): LessonFormState {
+  return {
+    title: '',
+    summary: '',
+    theory_text: '',
+    key_points: '',
+    interactive_steps: '',
+    task_title: '',
+    task_prompt: '',
+    answer_keywords: '',
+    starter_code: '',
+    task_hints: '',
+    age_group: ageGroup,
+    duration_minutes: '10',
+    passing_score: '70',
+    task_xp_reward: '30',
+    evaluation_mode: defaultEvaluationMode(practiceMode),
+    programming_language: defaultProgrammingLanguage(ageGroup),
+    time_limit_ms: '2000',
+    memory_limit_mb: '128',
+    judge_tests: practiceMode === 'code' ? [createEmptyJudgeTest()] : [],
+  }
+}
+
+const EMPTY_LESSON_FORM: LessonFormState = buildEmptyLessonForm()
 
 const LESSON_BLUEPRINT_KEYS: LessonBlueprintKey[] = ['guided', 'skills', 'project', 'revision']
 
@@ -288,6 +327,20 @@ const PRACTICE_MODE_OPTIONS: Array<{ value: LessonPracticeMode; label: string; s
   { value: 'code', label: 'Код / Blockly', short: 'Редактор или блоки' },
 ]
 
+const TEXT_EVALUATION_OPTIONS: Array<{ value: TaskEvaluationMode; label: string; short: string }> = [
+  { value: 'manual', label: 'Ручная проверка', short: 'Учитель читает ответ и пишет комментарий.' },
+  { value: 'keywords', label: 'Авто по ориентирам', short: 'Система ищет ключевые слова и смысловые маркеры.' },
+]
+
+const CODE_EVALUATION_OPTIONS: Array<{ value: TaskEvaluationMode; label: string; short: string }> = [
+  { value: 'stdin_stdout', label: 'Автотесты', short: 'Код запускается на тестах с входом и ожидаемым выводом.' },
+]
+
+const LANGUAGE_LABELS: Record<CodeTaskLanguage, string> = {
+  python: 'Python',
+  javascript: 'JavaScript',
+}
+
 const AGE_GROUP_LABELS: Record<'junior' | 'middle' | 'senior', string> = {
   junior: 'Junior',
   middle: 'Middle',
@@ -320,7 +373,7 @@ export function TeacherWorkspace() {
   const [message, setMessage] = useState('')
   const [classForm, setClassForm] = useState({ name: '', description: '' })
   const [assignmentForm, setAssignmentForm] = useState<AssignmentFormState>(EMPTY_ASSIGNMENT_FORM)
-  const [lessonForm, setLessonForm] = useState(EMPTY_LESSON_FORM)
+  const [lessonForm, setLessonForm] = useState<LessonFormState>(EMPTY_LESSON_FORM)
   const [lessonBlueprint, setLessonBlueprint] = useState<LessonBlueprintKey>('guided')
   const [lessonPracticeMode, setLessonPracticeMode] = useState<LessonPracticeMode>('text')
   const [lessonPage, setLessonPage] = useState(1)
@@ -340,10 +393,16 @@ export function TeacherWorkspace() {
   )
   const activeLessonBlueprint = LESSON_BLUEPRINTS[lessonBlueprint]
   const selectedPracticeMode = PRACTICE_MODE_OPTIONS.find((item) => item.value === lessonPracticeMode) || PRACTICE_MODE_OPTIONS[1]
+  const evaluationOptions = lessonPracticeMode === 'code' ? CODE_EVALUATION_OPTIONS : TEXT_EVALUATION_OPTIONS
+  const selectedEvaluationMode = evaluationOptions.find((item) => item.value === lessonForm.evaluation_mode) || evaluationOptions[0]
   const lessonKeyPoints = useMemo(() => splitLines(lessonForm.key_points), [lessonForm.key_points])
   const lessonInteractiveSteps = useMemo(() => splitLines(lessonForm.interactive_steps), [lessonForm.interactive_steps])
   const lessonTaskHints = useMemo(() => splitLines(lessonForm.task_hints), [lessonForm.task_hints])
   const lessonAnswerKeywords = useMemo(() => lessonForm.answer_keywords.split(',').map((item) => item.trim()).filter(Boolean), [lessonForm.answer_keywords])
+  const configuredJudgeTests = useMemo(
+    () => lessonForm.judge_tests.filter((item) => item.input.trim() || item.expected.trim()),
+    [lessonForm.judge_tests],
+  )
   const lessonPreviewTitle = lessonForm.title.trim() || activeLessonBlueprint.sampleTitle[lessonForm.age_group]
   const lessonPreviewSummary = lessonForm.summary.trim() || activeLessonBlueprint.summary(lessonPreviewTitle)
   const lessonHasPractice = lessonPracticeMode !== 'none'
@@ -366,11 +425,33 @@ export function TeacherWorkspace() {
       },
       {
         label: 'Практика',
-        done: lessonHasPractice ? Boolean(lessonForm.task_title.trim() || lessonForm.task_prompt.trim()) : true,
-        detail: lessonHasPractice ? 'Есть задача для закрепления' : 'Практика вынесена отдельно',
+        done: lessonHasPractice
+          ? Boolean(
+            (lessonForm.task_title.trim() || lessonForm.task_prompt.trim())
+            && (
+              lessonPracticeMode === 'code'
+                ? configuredJudgeTests.length > 0
+                : lessonForm.evaluation_mode === 'manual'
+                  || (lessonForm.evaluation_mode === 'keywords' && lessonAnswerKeywords.length > 0)
+                  || (lessonForm.evaluation_mode === 'stdin_stdout' && configuredJudgeTests.length > 0)
+            ),
+          )
+          : true,
+        detail: lessonHasPractice
+          ? lessonPracticeMode === 'code'
+            ? 'Есть кодовая задача и как минимум один автотест'
+            : lessonForm.evaluation_mode === 'stdin_stdout'
+            ? 'Есть задача и как минимум один автотест'
+            : lessonForm.evaluation_mode === 'keywords'
+              ? 'Есть задача и ориентиры для автопроверки'
+              : 'Есть задача для ручной проверки'
+          : 'Практика вынесена отдельно',
       },
     ],
     [
+      configuredJudgeTests.length,
+      lessonAnswerKeywords.length,
+      lessonForm.evaluation_mode,
       lessonForm.summary,
       lessonForm.task_prompt,
       lessonForm.task_title,
@@ -395,6 +476,45 @@ export function TeacherWorkspace() {
   }, [selectedClassId])
 
   useEffect(() => {
+    setLessonForm((current) => {
+      if (lessonPracticeMode === 'none') {
+        if (current.evaluation_mode === 'manual' && current.judge_tests.length === 0) {
+          return current
+        }
+        return {
+          ...current,
+          evaluation_mode: 'manual',
+          judge_tests: [],
+        }
+      }
+      if (lessonPracticeMode === 'code') {
+        if (current.evaluation_mode !== 'stdin_stdout') {
+          return {
+            ...current,
+            evaluation_mode: 'stdin_stdout',
+            judge_tests: current.judge_tests.length > 0 ? current.judge_tests : [createEmptyJudgeTest()],
+          }
+        }
+        if (current.evaluation_mode === 'stdin_stdout' && current.judge_tests.length === 0) {
+          return {
+            ...current,
+            judge_tests: [createEmptyJudgeTest()],
+          }
+        }
+        return current
+      }
+      if (current.evaluation_mode === 'stdin_stdout') {
+        return {
+          ...current,
+          evaluation_mode: 'manual',
+          judge_tests: [],
+        }
+      }
+      return current
+    })
+  }, [lessonPracticeMode])
+
+  useEffect(() => {
     setLessonPage((current) => Math.min(current, totalLessonPages))
   }, [totalLessonPages])
 
@@ -408,6 +528,29 @@ export function TeacherWorkspace() {
           }
         : assignment
     )))
+  }
+
+  function addJudgeTest() {
+    setLessonForm((current) => ({
+      ...current,
+      judge_tests: [...current.judge_tests, createEmptyJudgeTest()],
+    }))
+  }
+
+  function updateJudgeTest(index: number, patch: Partial<LessonJudgeTestCase>) {
+    setLessonForm((current) => ({
+      ...current,
+      judge_tests: current.judge_tests.map((item, itemIndex) => (
+        itemIndex === index ? { ...item, ...patch } : item
+      )),
+    }))
+  }
+
+  function removeJudgeTest(index: number) {
+    setLessonForm((current) => ({
+      ...current,
+      judge_tests: current.judge_tests.filter((_, itemIndex) => itemIndex !== index),
+    }))
   }
 
   function applyAssignmentTemplate(type: AssignmentType, replaceFilledFields = false) {
@@ -482,13 +625,19 @@ export function TeacherWorkspace() {
       passing_score: template.passingScore,
       task_xp_reward: template.taskXpReward,
       starter_code: lessonPracticeMode === 'code' && !current.starter_code.trim() ? template.starterCode : current.starter_code,
+      programming_language: lessonPracticeMode === 'code' ? current.programming_language : defaultProgrammingLanguage(current.age_group),
+      time_limit_ms: current.time_limit_ms.trim() || '2000',
+      memory_limit_mb: current.memory_limit_mb.trim() || '128',
+      judge_tests: lessonPracticeMode === 'code' && current.evaluation_mode === 'stdin_stdout' && current.judge_tests.length === 0
+        ? [createEmptyJudgeTest()]
+        : current.judge_tests,
     }))
   }
 
   function resetLessonComposer() {
+    const nextForm = buildEmptyLessonForm(lessonForm.age_group, lessonPracticeMode)
     setLessonForm({
-      ...EMPTY_LESSON_FORM,
-      age_group: lessonForm.age_group,
+      ...nextForm,
       duration_minutes: activeLessonBlueprint.durationByAge[lessonForm.age_group],
       passing_score: activeLessonBlueprint.passingScore,
       task_xp_reward: activeLessonBlueprint.taskXpReward,
@@ -502,6 +651,7 @@ export function TeacherWorkspace() {
       title: lesson.title,
       summary: lesson.summary,
       age_group: lesson.module_age_group,
+      programming_language: defaultProgrammingLanguage(lesson.module_age_group),
       duration_minutes: String(lesson.duration_minutes),
       passing_score: String(lesson.passing_score),
     }))
@@ -595,30 +745,49 @@ export function TeacherWorkspace() {
     event.preventDefault()
     if (!selectedClassId) return
     try {
+      const judgeTestsPayload = lessonForm.evaluation_mode === 'stdin_stdout'
+        ? lessonForm.judge_tests
+          .filter((item) => item.input.trim() || item.expected.trim())
+          .map((item, index) => ({
+            label: `Тест ${index + 1}`,
+            input: item.input,
+            expected: item.expected,
+          }))
+        : []
+      if (lessonPracticeMode === 'code' && judgeTestsPayload.length === 0) {
+        setMessage('Для кодовой практики нужен хотя бы один автотест.')
+        return
+      }
       const data = await api<{ lesson: { id: number; title: string; summary: string } }>(
         `/teacher/classes/${selectedClassId}/lessons`,
         {
           method: 'POST',
           body: JSON.stringify({
             ...lessonForm,
+            task_type: lessonPracticeMode === 'code' ? 'code' : 'text',
             task_title: lessonHasPractice
               ? (lessonForm.task_title.trim() || activeLessonBlueprint.taskTitle(lessonPreviewTitle))
               : '',
             task_prompt: lessonHasPractice
               ? (lessonForm.task_prompt.trim() || activeLessonBlueprint.taskPrompt(lessonPreviewTitle))
               : '',
-            answer_keywords: lessonHasPractice ? lessonForm.answer_keywords : '',
+            answer_keywords: lessonHasPractice && lessonForm.evaluation_mode === 'keywords' ? lessonForm.answer_keywords : '',
             starter_code: lessonPracticeMode === 'code' ? lessonForm.starter_code : '',
             task_hints: lessonHasPractice ? lessonForm.task_hints : '',
+            evaluation_mode: lessonHasPractice ? lessonForm.evaluation_mode : 'manual',
+            programming_language: lessonPracticeMode === 'code' ? lessonForm.programming_language : null,
+            judge_tests: judgeTestsPayload,
             duration_minutes: Number(lessonForm.duration_minutes),
             passing_score: Number(lessonForm.passing_score),
+            time_limit_ms: lessonForm.evaluation_mode === 'stdin_stdout' ? Number(lessonForm.time_limit_ms) : null,
+            memory_limit_mb: lessonForm.evaluation_mode === 'stdin_stdout' ? Number(lessonForm.memory_limit_mb) : null,
           }),
         },
         true,
       )
+      const nextForm = buildEmptyLessonForm(lessonForm.age_group, lessonPracticeMode)
       setLessonForm({
-        ...EMPTY_LESSON_FORM,
-        age_group: lessonForm.age_group,
+        ...nextForm,
         duration_minutes: activeLessonBlueprint.durationByAge[lessonForm.age_group],
         passing_score: activeLessonBlueprint.passingScore,
         task_xp_reward: activeLessonBlueprint.taskXpReward,
@@ -918,7 +1087,14 @@ export function TeacherWorkspace() {
                   <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">3. Основа урока</p>
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
                     <input className="rounded-2xl border border-slate-200 px-4 py-3 md:col-span-2" placeholder={activeLessonBlueprint.sampleTitle[lessonForm.age_group]} value={lessonForm.title} onChange={(e) => setLessonForm({ ...lessonForm, title: e.target.value })} />
-                    <select className="rounded-2xl border border-slate-200 px-4 py-3" value={lessonForm.age_group} onChange={(e) => setLessonForm({ ...lessonForm, age_group: e.target.value as 'junior' | 'middle' | 'senior' })}>
+                    <select className="rounded-2xl border border-slate-200 px-4 py-3" value={lessonForm.age_group} onChange={(e) => {
+                      const nextAgeGroup = e.target.value as 'junior' | 'middle' | 'senior'
+                      setLessonForm({
+                        ...lessonForm,
+                        age_group: nextAgeGroup,
+                        programming_language: lessonPracticeMode === 'code' ? defaultProgrammingLanguage(nextAgeGroup) : lessonForm.programming_language,
+                      })
+                    }}>
                       <option value="junior">Junior</option>
                       <option value="middle">Middle</option>
                       <option value="senior">Senior</option>
@@ -953,17 +1129,94 @@ export function TeacherWorkspace() {
                       Урок сохранится без встроенной практики. Закрепление можно выдать отдельным заданием ниже.
                     </div>
                   ) : (
-                    <div className="mt-4 grid gap-3 md:grid-cols-2">
-                      <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder={activeLessonBlueprint.taskTitle(lessonPreviewTitle)} value={lessonForm.task_title} onChange={(e) => setLessonForm({ ...lessonForm, task_title: e.target.value })} />
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                        XP не начисляется. Ответ уйдёт на ручную проверку.
+                    <div className="mt-4 space-y-4">
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder={activeLessonBlueprint.taskTitle(lessonPreviewTitle)} value={lessonForm.task_title} onChange={(e) => setLessonForm({ ...lessonForm, task_title: e.target.value })} />
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                          <p className="font-semibold text-slate-800">Режим проверки: {selectedEvaluationMode.label}</p>
+                          <p className="mt-1">{selectedEvaluationMode.short}</p>
+                        </div>
                       </div>
-                      <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder={activeLessonBlueprint.keywords} value={lessonForm.answer_keywords} onChange={(e) => setLessonForm({ ...lessonForm, answer_keywords: e.target.value })} />
-                      <textarea className="min-h-24 rounded-2xl border border-slate-200 px-4 py-3 md:col-span-2" placeholder={activeLessonBlueprint.taskPrompt(lessonPreviewTitle)} value={lessonForm.task_prompt} onChange={(e) => setLessonForm({ ...lessonForm, task_prompt: e.target.value })} />
-                      {lessonPracticeMode === 'code' && (
-                        <textarea className="min-h-28 rounded-2xl border border-slate-200 px-4 py-3 font-mono text-xs leading-6 md:col-span-2" placeholder={activeLessonBlueprint.starterCode || 'Стартовый код или каркас ответа'} value={lessonForm.starter_code} onChange={(e) => setLessonForm({ ...lessonForm, starter_code: e.target.value })} />
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                        {evaluationOptions.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => setLessonForm((current) => ({
+                              ...current,
+                              evaluation_mode: option.value,
+                              judge_tests: option.value === 'stdin_stdout'
+                                ? (current.judge_tests.length > 0 ? current.judge_tests : [createEmptyJudgeTest()])
+                                : current.judge_tests,
+                            }))}
+                            className={`rounded-[22px] border p-4 text-left transition ${lessonForm.evaluation_mode === option.value ? 'border-sky-500 bg-sky-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+                          >
+                            <p className="text-base font-black text-slate-900">{option.label}</p>
+                            <p className="mt-2 text-sm leading-6 text-slate-600">{option.short}</p>
+                          </button>
+                        ))}
+                      </div>
+
+                      <textarea className="min-h-24 rounded-2xl border border-slate-200 px-4 py-3" placeholder={activeLessonBlueprint.taskPrompt(lessonPreviewTitle)} value={lessonForm.task_prompt} onChange={(e) => setLessonForm({ ...lessonForm, task_prompt: e.target.value })} />
+
+                      {lessonForm.evaluation_mode === 'keywords' && (
+                        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px]">
+                          <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder={activeLessonBlueprint.keywords} value={lessonForm.answer_keywords} onChange={(e) => setLessonForm({ ...lessonForm, answer_keywords: e.target.value })} />
+                          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                            Система будет искать ориентиры в ответе. Подходит для текста, Blockly и коротких объяснений.
+                          </div>
+                        </div>
                       )}
-                      <textarea className="min-h-24 rounded-2xl border border-slate-200 px-4 py-3 md:col-span-2" placeholder={activeLessonBlueprint.hints} value={lessonForm.task_hints} onChange={(e) => setLessonForm({ ...lessonForm, task_hints: e.target.value })} />
+
+                      {lessonPracticeMode === 'code' && (
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <select className="rounded-2xl border border-slate-200 px-4 py-3" value={lessonForm.programming_language} onChange={(e) => setLessonForm({ ...lessonForm, programming_language: e.target.value as CodeTaskLanguage })}>
+                            <option value="python">Python</option>
+                            <option value="javascript">JavaScript</option>
+                          </select>
+                          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                            Кодовая практика всегда проверяется автотестами. Ожидается консольная программа: чтение из stdin и вывод в stdout.
+                          </div>
+                        </div>
+                      )}
+
+                      {lessonForm.evaluation_mode === 'stdin_stdout' && (
+                        <div className="space-y-3 rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <input className="rounded-2xl border border-slate-200 px-4 py-3" type="number" min={500} max={10000} placeholder="Лимит времени, мс" value={lessonForm.time_limit_ms} onChange={(e) => setLessonForm({ ...lessonForm, time_limit_ms: e.target.value })} />
+                            <input className="rounded-2xl border border-slate-200 px-4 py-3" type="number" min={32} max={1024} placeholder="Память, МБ" value={lessonForm.memory_limit_mb} onChange={(e) => setLessonForm({ ...lessonForm, memory_limit_mb: e.target.value })} />
+                          </div>
+                          <div className="space-y-3">
+                            {lessonForm.judge_tests.map((testCase, index) => (
+                              <div key={`${index}-${testCase.input.length}-${testCase.expected.length}`} className="rounded-[22px] border border-slate-200 bg-white p-4">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                  <p className="text-sm font-black text-slate-900">Тест {index + 1}</p>
+                                  <button type="button" onClick={() => removeJudgeTest(index)} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                                    Удалить
+                                  </button>
+                                </div>
+                                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                  <textarea className="min-h-24 rounded-2xl border border-slate-200 px-4 py-3 font-mono text-xs leading-6" placeholder="stdin" value={testCase.input} onChange={(e) => updateJudgeTest(index, { input: e.target.value })} />
+                                  <textarea className="min-h-24 rounded-2xl border border-slate-200 px-4 py-3 font-mono text-xs leading-6" placeholder="ожидаемый stdout" value={testCase.expected} onChange={(e) => updateJudgeTest(index, { expected: e.target.value })} />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button type="button" onClick={addJudgeTest} className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-700">
+                              Добавить тест
+                            </button>
+                            <span className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-600">Настроено тестов: {configuredJudgeTests.length}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {lessonPracticeMode === 'code' && (
+                        <textarea className="min-h-28 rounded-2xl border border-slate-200 px-4 py-3 font-mono text-xs leading-6" placeholder={activeLessonBlueprint.starterCode || 'Стартовый код или каркас ответа'} value={lessonForm.starter_code} onChange={(e) => setLessonForm({ ...lessonForm, starter_code: e.target.value })} />
+                      )}
+
+                      <textarea className="min-h-24 rounded-2xl border border-slate-200 px-4 py-3" placeholder={activeLessonBlueprint.hints} value={lessonForm.task_hints} onChange={(e) => setLessonForm({ ...lessonForm, task_hints: e.target.value })} />
                     </div>
                   )}
                 </div>
@@ -1008,6 +1261,8 @@ export function TeacherWorkspace() {
                     <span className="rounded-full bg-white px-3 py-1">{lessonForm.duration_minutes} мин</span>
                     <span className="rounded-full bg-white px-3 py-1">Порог {lessonForm.passing_score}%</span>
                     <span className="rounded-full bg-white px-3 py-1">{selectedPracticeMode.label}</span>
+                    {lessonHasPractice && <span className="rounded-full bg-white px-3 py-1">{selectedEvaluationMode.label}</span>}
+                    {lessonHasPractice && lessonPracticeMode === 'code' && <span className="rounded-full bg-white px-3 py-1">{LANGUAGE_LABELS[lessonForm.programming_language]}</span>}
                   </div>
                   <div className="mt-4 space-y-3">
                     <div className="rounded-2xl bg-white p-4">
@@ -1024,7 +1279,13 @@ export function TeacherWorkspace() {
                         <div className="mt-2 text-sm leading-6 text-slate-700">
                           <p className="font-semibold text-slate-900">{lessonForm.task_title.trim() || activeLessonBlueprint.taskTitle(lessonPreviewTitle)}</p>
                           <p className="mt-1">{shortenText(lessonForm.task_prompt.trim() || activeLessonBlueprint.taskPrompt(lessonPreviewTitle), 120)}</p>
-                          <p className="mt-2 text-xs text-slate-500">Ключевых слов: {lessonAnswerKeywords.length || 0} · Подсказок: {lessonTaskHints.length || 0}</p>
+                          <p className="mt-2 text-xs text-slate-500">
+                            {lessonForm.evaluation_mode === 'stdin_stdout'
+                              ? `Автотестов: ${configuredJudgeTests.length} · Лимит: ${lessonForm.time_limit_ms || '2000'} мс`
+                              : lessonForm.evaluation_mode === 'keywords'
+                                ? `Ключевых слов: ${lessonAnswerKeywords.length || 0} · Подсказок: ${lessonTaskHints.length || 0}`
+                                : `Ручная проверка · Подсказок: ${lessonTaskHints.length || 0}`}
+                          </p>
                         </div>
                       ) : <p className="mt-2 text-sm text-slate-500">Практика будет вынесена в отдельное задание.</p>}
                     </div>

@@ -8,12 +8,13 @@
 - суперадмин создаётся автоматически при старте по `.env`
 - ученик: dashboard, roadmap, уроки, теория, практика, мини‑тесты, достижения, рейтинг, форум, вступление в класс
 - teacher workflow: создание классов, назначение заданий, просмотр учеников, проверка сдач
+- teacher practice builder: ручная проверка, авто‑проверка по ключевым словам и настоящие автотесты для `Python`/`JavaScript`
 - админ: просмотр пользователей, создание модулей, публикация и снятие с публикации
 - суперадмин: создание, блокировка, разблокировка и удаление обычных админов
 - родительский кабинет по семейной ссылке-приглашению
 - смешанные тесты: single choice, multiple choice, ordering, matching
 - красивый roadmap в стиле path‑based learning: крупные пунсоны-узлы соединены линией, состояния уроков видны визуально
-- Docker Compose для фронтенда, бэкенда и PostgreSQL
+- Docker Compose для фронтенда, бэкенда, PostgreSQL и изолированного `judge-runner`
 
 ## Актуальный стек
 - Backend: Flask + Flask-SQLAlchemy + PostgreSQL + PyJWT
@@ -31,6 +32,7 @@ docker compose up --build
 После запуска:
 - Frontend: http://localhost:3000
 - Backend API: http://localhost:8000/api
+- `judge-runner` поднимается внутри Docker-сети и не публикует порт наружу
 
 ## Production режим
 - по умолчанию проект запускается в production-конфигурации:
@@ -39,6 +41,28 @@ docker compose up --build
 - фронтенд в Docker собирается через `next build` и запускается через `next start`
 - backend стартует без `debug` режима (`FLASK_DEBUG=0`)
 - если в `APP_ENV=production` оставлен слабый `SECRET_KEY` (`dev-secret-key` или `super-secret-key-change-me`), backend завершит запуск с ошибкой
+
+## Автопроверка кода
+- в конструкторе teacher-урока для практики можно выбрать:
+- `Ручная проверка`
+- `Авто по ориентирам` для текстовых/Blockly-ответов
+- `Автотесты` для консольных задач на `Python` и `JavaScript`
+- режим `Автотесты` ожидает программу, которая читает из `stdin` и пишет результат в `stdout`
+- в `docker compose` backend отправляет код в отдельный сервис `judge-runner`
+- runner запускает код в собственной временной директории, с таймаутом, лимитом памяти и сокращённым окружением
+- backend может использовать локальный fallback только если это явно разрешено через `CODE_JUDGE_ALLOW_LOCAL_FALLBACK=true`
+
+Поддерживаемые настройки `.env`:
+
+```env
+CODE_JUDGE_PYTHON_BIN=python
+CODE_JUDGE_NODE_BIN=node
+CODE_JUDGE_DEFAULT_TIME_LIMIT_MS=2000
+CODE_JUDGE_DEFAULT_MEMORY_LIMIT_MB=128
+CODE_JUDGE_MAX_OUTPUT_CHARS=4000
+CODE_JUDGE_RUNNER_TIMEOUT_MS=15000
+CODE_JUDGE_ALLOW_LOCAL_FALLBACK=true
+```
 
 ## Тестовые данные (только для локальной проверки)
 Если нужно поднять демо-аккаунты и тестовые сценарии, добавьте в `.env`:

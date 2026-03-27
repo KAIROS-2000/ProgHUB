@@ -5,6 +5,12 @@ from datetime import UTC, datetime, timedelta
 
 from flask import Blueprint, request
 
+from ..core.code_judge import (
+    CodeJudgeConfigurationError,
+    CodeJudgeUnavailableError,
+    judge_task_submission,
+    summarize_judge_report,
+)
 from ..core.assignment_sync import sync_student_assignment_submissions_for_lesson
 from ..core.db import db
 from ..core.security import auth_required, hash_password
@@ -22,6 +28,7 @@ from ..models.learning import (
     Task,
     UserAchievement,
     UserProgress,
+    lesson_requires_teacher_review as lesson_requires_teacher_review_helper,
 )
 from ..models.user import User, UserRole
 from ..seed.bootstrap import generate_code
@@ -75,7 +82,7 @@ def _status_from_completion_percent(lesson: Lesson, completion_percent: int) -> 
 
 
 def _lesson_requires_teacher_review(lesson: Lesson) -> bool:
-    return lesson.module.is_custom_classroom_module
+    return lesson_requires_teacher_review_helper(lesson)
 
 
 def _lesson_state_for_user(user: User, module: Module, lesson: Lesson, lesson_index: int) -> str:
@@ -427,22 +434,36 @@ def submit_task(current_user: User, task_id: int):
         return {'message': 'Сначала откройте доступ к этому уроку через предыдущее задание или учителя.'}, 403
     data = request.get_json() or {}
     raw_answer = data.get('answer') or ''
-    answer = raw_answer.lower()
-    keywords = [item.lower() for item in task.validation.get('keywords', [])]
-    matches = sum(1 for keyword in keywords if keyword in answer)
-    score = 100 if keywords and matches == len(keywords) else int((matches / max(len(keywords), 1)) * 100)
     has_answer = bool(raw_answer.strip())
-    manual_review_required = _lesson_requires_teacher_review(task.lesson)
-    if manual_review_required and has_answer and not keywords:
-        score = 100
+    manual_review_required = task.requires_teacher_review()
+    judge_report = None
+    validation = task.normalized_validation(include_private=True)
+    if validation['evaluation_mode'] == 'manual':
+        score = 100 if has_answer else 0
+        passed = has_answer
+        feedback = (
+            'Ответ сохранён. Теперь заверши урок, чтобы отправить его учителю на проверку.'
+            if has_answer
+            else 'Добавь решение, чтобы сохранить ответ для учителя.'
+        )
+    else:
+        if not has_answer:
+            return {'message': 'Сначала добавь решение в редактор.'}, 400
+        try:
+            judge_report = judge_task_submission(task, raw_answer)
+        except CodeJudgeConfigurationError as exc:
+            return {'message': str(exc)}, 400
+        except CodeJudgeUnavailableError as exc:
+            return {'message': str(exc)}, 503
+        score = judge_report['score']
+        passed = judge_report['passed']
+        feedback = judge_report['feedback']
 
     progress = _get_or_create_progress(current_user.id, task.lesson_id)
     progress.attempts += 1
-    passed = score >= task.lesson.passing_score
     was_completed = progress.status == 'completed'
     xp_awarded = 0
     if manual_review_required:
-        passed = has_answer
         if progress.status != 'completed':
             progress.status = 'in_progress' if has_answer else progress.status
     else:
@@ -454,7 +475,13 @@ def submit_task(current_user: User, task_id: int):
                 current_user.add_xp(task.xp_reward)
                 xp_awarded = task.xp_reward
     if progress.status == 'completed':
-        sync_student_assignment_submissions_for_lesson(current_user, task.lesson, progress)
+        sync_student_assignment_submissions_for_lesson(
+            current_user,
+            task.lesson,
+            progress,
+            answer=raw_answer or None,
+            feedback=summarize_judge_report(judge_report) if judge_report else None,
+        )
     db.session.commit()
     if not manual_review_required:
         _award_achievement_if_needed(current_user, code='first_code')
@@ -462,15 +489,9 @@ def submit_task(current_user: User, task_id: int):
         'passed': passed,
         'score': score,
         'xp_awarded': xp_awarded,
-        'feedback': (
-            'Ответ сохранён. Теперь заверши урок, чтобы отправить его учителю на проверку.'
-            if manual_review_required and passed
-            else 'Добавь решение, чтобы сохранить ответ для учителя.'
-            if manual_review_required
-            else 'Отлично! Решение засчитано.'
-            if passed
-            else 'Почти получилось. Сравни ответ с ключевыми словами темы.'
-        ),
+        'feedback': feedback,
+        'judge_report': judge_report,
+        'requires_teacher_review': manual_review_required,
         'progress': progress.to_dict(),
         'user': current_user.to_dict(),
     }

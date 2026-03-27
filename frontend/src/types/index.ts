@@ -1,6 +1,8 @@
 export type UserRole = 'student' | 'teacher' | 'admin' | 'superadmin'
 export type ProgressStatus = 'not_started' | 'in_progress' | 'pending_review' | 'needs_revision' | 'completed'
 export type SubmissionStatus = 'submitted' | 'pending_review' | 'checked' | 'needs_revision'
+export type TaskEvaluationMode = 'manual' | 'keywords' | 'stdin_stdout'
+export type CodeTaskLanguage = 'python' | 'javascript'
 
 export interface UserItem {
   id: number
@@ -77,9 +79,46 @@ export interface TaskItem {
   title: string
   prompt: string
   starter_code: string
-  validation: { keywords?: string[] }
+  validation: {
+    evaluation_mode: TaskEvaluationMode
+    runner?: 'stdin_stdout' | null
+    language?: CodeTaskLanguage | null
+    keywords?: string[]
+    tests_count?: number
+    time_limit_ms?: number | null
+    memory_limit_mb?: number | null
+  }
   hints: string[]
   xp_reward: number
+}
+
+export interface JudgeResultItem {
+  label: string
+  input: string
+  expected: string
+  actual: string
+  stderr?: string | null
+  passed: boolean
+  duration_ms: number
+  error_type?: 'timeout' | 'compile_error' | 'runtime_error' | null
+}
+
+export interface JudgeReport {
+  mode: TaskEvaluationMode
+  runner?: 'stdin_stdout' | null
+  language?: CodeTaskLanguage | null
+  passed: boolean
+  score: number
+  feedback: string
+  tests_passed?: number
+  tests_total?: number
+  results?: JudgeResultItem[]
+  compile_error?: string | null
+  runtime_error?: string | null
+  keyword_matches?: string[]
+  missing_keywords?: string[]
+  time_limit_ms?: number | null
+  memory_limit_mb?: number | null
 }
 
 export interface QuizQuestion {
@@ -176,7 +215,7 @@ export interface SubmissionItem {
   assignment_id: number
   student_id: number
   student_username: string
-  answer: string
+  answer: string | null
   score: number
   status: SubmissionStatus
   feedback?: string | null

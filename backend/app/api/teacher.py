@@ -19,6 +19,7 @@ from ..models.learning import (
     encode_assignment_description,
     normalize_assignment_type,
     normalize_submission_format,
+    normalize_task_validation,
 )
 from ..models.user import User, UserRole
 from ..seed.bootstrap import generate_code
@@ -317,21 +318,53 @@ def create_class_lesson(current_user: User, classroom_id: int):
     task_title = (data.get('task_title') or '').strip()
     task_prompt = (data.get('task_prompt') or '').strip()
     starter_code = data.get('starter_code') or ''
+    requested_task_type = 'code' if (data.get('task_type') or '').strip().lower() == 'code' else 'text'
+    requested_is_code_task = requested_task_type == 'code' or bool(starter_code.strip())
     answer_keywords = _split_csv(data.get('answer_keywords'))
-    task_hints = _split_lines(data.get('task_hints')) or [
-        'Сверь ответ с объяснением урока.',
-        'Разбей решение на короткие шаги.',
-        'Проверь, есть ли в ответе ключевые слова темы.',
-    ]
-    if task_title or task_prompt or starter_code or answer_keywords:
+    judge_tests = data.get('judge_tests')
+    task_hints = _split_lines(data.get('task_hints')) or (
+        [
+            'Проверь, что программа читает входные данные из stdin.',
+            'Сравни формат вывода с ожидаемым ответом посимвольно.',
+            'Прогони решение на граничных примерах перед отправкой.',
+        ]
+        if requested_is_code_task
+        else [
+            'Сверь ответ с объяснением урока.',
+            'Разбей решение на короткие шаги.',
+            'Проверь, есть ли в ответе ключевые слова темы.',
+        ]
+    )
+    if task_title or task_prompt or starter_code or answer_keywords or judge_tests:
+        task_validation = normalize_task_validation(
+            {
+                'evaluation_mode': data.get('evaluation_mode'),
+                'language': data.get('programming_language'),
+                'keywords': answer_keywords,
+                'tests': judge_tests,
+                'time_limit_ms': data.get('time_limit_ms'),
+                'memory_limit_mb': data.get('memory_limit_mb'),
+            },
+            is_custom_lesson=True,
+            task_type='code' if requested_is_code_task else 'text',
+            age_group=age_group,
+        )
+        if requested_is_code_task and not task_validation['tests']:
+            return {'message': 'Кодовая задача сохраняется только с автотестами. Добавьте хотя бы один тест с входом и ожидаемым выводом.'}, 400
+        if task_validation['evaluation_mode'] == 'keywords' and not task_validation['keywords']:
+            return {'message': 'Для автопроверки по ключевым словам добавьте хотя бы одно ключевое слово.'}, 400
+        if task_validation['evaluation_mode'] == 'stdin_stdout' and not task_validation['tests']:
+            return {'message': 'Для проверки кода добавьте хотя бы один тест с входом и ожидаемым выводом.'}, 400
+        task_type = 'code' if requested_is_code_task or task_validation['evaluation_mode'] == 'stdin_stdout' else 'text'
+        normalized_starter_code = starter_code if task_type == 'code' else ''
         db.session.add(
             Task(
                 lesson_id=lesson.id,
-                task_type='code' if starter_code else 'text',
+                task_type=task_type,
                 title=task_title or f'Практика: {title}',
                 prompt=task_prompt or 'Выполни практическое задание по этому уроку.',
-                starter_code=starter_code,
-                validation={'keywords': answer_keywords},
+                starter_code=normalized_starter_code,
+                validation=task_validation,
                 hints=task_hints,
                 xp_reward=0,
             )

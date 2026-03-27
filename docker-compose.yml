@@ -16,6 +16,29 @@ services:
       timeout: 5s
       retries: 10
 
+  judge-runner:
+    build: ./judge_runner
+    restart: unless-stopped
+    environment:
+      JUDGE_RUNNER_HOST: 0.0.0.0
+      JUDGE_RUNNER_PORT: "8090"
+    expose:
+      - "8090"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build: ./backend
     restart: unless-stopped
@@ -25,8 +48,12 @@ services:
       APP_ENV: production
       ENABLE_DEMO_DATA: "false"
       FLASK_DEBUG: "0"
+      CODE_JUDGE_RUNNER_URL: http://judge-runner:8090/execute
+      CODE_JUDGE_ALLOW_LOCAL_FALLBACK: "false"
     depends_on:
       db:
+        condition: service_healthy
+      judge-runner:
         condition: service_healthy
     ports:
       - "8000:8000"
