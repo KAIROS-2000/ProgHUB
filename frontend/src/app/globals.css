@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f0f4f8;
+  --fg: #2c3e50;
+  --brand: #4a90d9;
+  --success: #2ecc71;
+  --warning: #f39c12;
+  --danger: #e74c3c;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(74, 144, 217, 0.18), transparent 30%),
+    radial-gradient(circle at bottom right, rgba(46, 204, 113, 0.15), transparent 26%),
+    linear-gradient(180deg, #f8fbff 0%, #f0f4f8 48%, #edf2f7 100%);
+  color: var(--fg);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.codequest-card {
+  @apply rounded-[28px] border border-white/70 bg-white/85 shadow-[0_18px_60px_rgba(41,72,152,0.12)] backdrop-blur;
+}
+
+.roadmap-gradient {
+  background: linear-gradient(180deg, #4a90d9 0%, #2ecc71 50%, #f39c12 100%);
+}
+
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(74, 144, 217, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(74, 144, 217, 0.06) 1px, transparent 1px);
+  background-size: 30px 30px;
+}
+
+button,
+input,
+select,
+textarea {
+  @apply outline-none;
+}
