@@ -43,6 +43,14 @@ function isQuestionAnswered(question: QuizQuestion, answer: unknown) {
   return false
 }
 
+function lessonStatusLabel(status?: ProgressItem['status']) {
+  if (status === 'completed') return 'Завершён'
+  if (status === 'pending_review') return 'Ожидает проверки'
+  if (status === 'needs_revision') return 'Нужно исправить'
+  if (status === 'in_progress') return 'В процессе'
+  return 'Не начат'
+}
+
 function OrderQuestion({ question, value, onChange }: { question: QuizQuestion; value: string[]; onChange: (next: string[]) => void }) {
   const items = value.length ? value : [...(question.items || [])]
 
@@ -172,6 +180,7 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
   const [quizPassed, setQuizPassed] = useState(false)
   const [savingCompletion, setSavingCompletion] = useState(false)
   const [progress, setProgress] = useState<ProgressItem | null>(null)
+  const isTeacherLesson = Boolean(lesson?.is_custom)
 
   useEffect(() => {
     api<{ lesson: LessonDetail; progress: ProgressItem }>(`/lessons/${lessonId}`, undefined, true)
@@ -181,11 +190,11 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
         setAnswer(data.lesson.tasks[0]?.starter_code || '')
         setQuizAnswers({})
         setShownHints(0)
-        const isCompleted = data.progress.status === 'completed'
-        setTheoryMarked(isCompleted)
-        setInteractiveMarked(isCompleted)
-        setTaskPassed(isCompleted)
-        setQuizPassed(isCompleted)
+        const isFinished = data.progress.status === 'completed' || data.progress.status === 'pending_review'
+        setTheoryMarked(isFinished)
+        setInteractiveMarked(isFinished)
+        setTaskPassed(isFinished)
+        setQuizPassed(isFinished)
         setResult('')
         setResultTone('neutral')
       })
@@ -211,11 +220,7 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
 
   const completedStepsCount = learningSteps.filter((step) => step.completed).length
   const progressPercent = Math.round((completedStepsCount / learningSteps.length) * 100)
-  const progressStatusLabel = progress?.status === 'completed'
-    ? 'Завершён'
-    : progress?.status === 'in_progress'
-      ? 'В процессе'
-      : 'Не начат'
+  const progressStatusLabel = lessonStatusLabel(progress?.status)
 
   function jumpTo(id: string) {
     if (typeof document === 'undefined') return
@@ -231,7 +236,7 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
         method: 'POST',
         body: JSON.stringify({ answer }),
       }, true)
-      setResult(`${data.feedback} Результат: ${data.score}%. ${data.xp_awarded ? `+${data.xp_awarded} XP.` : ''}`)
+      setResult(isTeacherLesson ? data.feedback : `${data.feedback} Результат: ${data.score}%. ${data.xp_awarded ? `+${data.xp_awarded} XP.` : ''}`)
       setResultTone(data.passed ? 'success' : 'warning')
       setTaskPassed(data.passed)
       setProgress(data.progress)
@@ -268,11 +273,11 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
     try {
       const data = await api<{ message: string; progress: ProgressItem; redirect_url: string }>(`/lessons/${lessonId}/complete`, {
         method: 'PATCH',
-        body: JSON.stringify({ completion_percent: progressPercent }),
+        body: JSON.stringify({ completion_percent: progressPercent, answer }),
       }, true)
       setProgress(data.progress)
       setResult(data.message)
-      setResultTone(data.progress.status === 'completed' ? 'success' : 'neutral')
+      setResultTone(data.progress.status === 'completed' || data.progress.status === 'pending_review' ? 'success' : 'neutral')
       router.push(data.redirect_url || '/profile')
     } catch (e) {
       setResult(e instanceof Error ? e.message : 'Не удалось завершить урок.')
@@ -336,7 +341,9 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
         <section className="codequest-card p-5">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Завершение</p>
           <p className="mt-3 text-sm leading-6 text-slate-600">
-            Кнопка сохранит текущий процент выполнения урока и вернёт тебя на страницу профиля.
+            {isTeacherLesson
+              ? 'Кнопка отправит урок учителю на проверку и вернёт тебя на страницу профиля.'
+              : 'Кнопка сохранит текущий процент выполнения урока и вернёт тебя на страницу профиля.'}
           </p>
           <button
             type="button"
@@ -344,7 +351,7 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
             onClick={finishLesson}
             className="mt-4 w-full rounded-full bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
           >
-            {savingCompletion ? 'Сохраняем и возвращаем...' : 'Завершить урок'}
+            {savingCompletion ? 'Сохраняем и возвращаем...' : isTeacherLesson ? 'Отправить на проверку' : 'Завершить урок'}
           </button>
         </section>
 
@@ -440,7 +447,9 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
                     <p className="text-sm font-bold uppercase tracking-[0.2em] text-sky-600">Практика</p>
                     <h2 className="mt-2 text-2xl font-black text-slate-900">{task.title}</h2>
                   </div>
-                  <span className="rounded-full bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">Награда {task.xp_reward} XP</span>
+                  {!isTeacherLesson && task.xp_reward > 0 && (
+                    <span className="rounded-full bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">Награда {task.xp_reward} XP</span>
+                  )}
                 </div>
                 <p className="mt-3 text-sm leading-7 text-slate-600">{task.prompt}</p>
                 {lesson.module.age_group === 'junior' ? (
@@ -465,7 +474,7 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
                 )}
                 <div className="mt-4 flex flex-wrap gap-3">
                   <button disabled={loadingTask} onClick={submitTask} className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
-                    {loadingTask ? 'Проверяем…' : 'Проверить задачу'}
+                    {loadingTask ? 'Проверяем…' : isTeacherLesson ? 'Сохранить ответ' : 'Проверить задачу'}
                   </button>
                   <button
                     type="button"

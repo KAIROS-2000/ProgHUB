@@ -8,6 +8,11 @@ from ..models.learning import Assignment, AssignmentSubmission, ClassMembership,
 from ..models.user import User
 
 AUTO_SUBMISSION_PREFIX = 'Автоматическая сдача урока:'
+SYNCABLE_PROGRESS_STATUSES = {'completed', 'pending_review'}
+
+
+def _lesson_requires_teacher_review(lesson: Lesson) -> bool:
+    return lesson.module.is_custom_classroom_module
 
 
 def _auto_submission_answer(lesson: Lesson, progress: UserProgress) -> str:
@@ -24,13 +29,24 @@ def _is_auto_submission_answer(answer: str | None) -> bool:
     return not normalized or normalized.startswith(AUTO_SUBMISSION_PREFIX)
 
 
-def sync_assignment_submission_from_progress(assignment: Assignment, student: User, progress: UserProgress) -> bool:
-    if assignment.lesson_id != progress.lesson_id or progress.status != 'completed':
+def sync_assignment_submission_from_progress(
+    assignment: Assignment,
+    student: User,
+    progress: UserProgress,
+    answer: str | None = None,
+) -> bool:
+    if assignment.lesson_id != progress.lesson_id or progress.status not in SYNCABLE_PROGRESS_STATUSES:
         return False
 
     lesson = assignment.lesson or progress.lesson
-    generated_answer = _auto_submission_answer(lesson, progress)
+    manual_review_required = _lesson_requires_teacher_review(lesson)
+    if not manual_review_required and progress.status != 'completed':
+        return False
+
+    normalized_answer = (answer or '').strip()
+    generated_answer = normalized_answer or _auto_submission_answer(lesson, progress)
     completed_at = progress.completed_at or datetime.now(UTC)
+    target_status = 'pending_review' if manual_review_required and progress.status != 'completed' else 'checked' if manual_review_required else 'submitted'
     submission = AssignmentSubmission.query.filter_by(assignment_id=assignment.id, student_id=student.id).first()
 
     if submission is None:
@@ -40,7 +56,7 @@ def sync_assignment_submission_from_progress(assignment: Assignment, student: Us
                 student_id=student.id,
                 answer=generated_answer,
                 score=progress.score,
-                status='submitted',
+                status=target_status,
                 submitted_at=completed_at,
             )
         )
@@ -52,22 +68,28 @@ def sync_assignment_submission_from_progress(assignment: Assignment, student: Us
         submission.score = best_score
         changed = True
 
-    if _is_auto_submission_answer(submission.answer) and submission.answer != generated_answer:
+    should_replace_answer = bool(normalized_answer) or _is_auto_submission_answer(submission.answer)
+    if should_replace_answer and submission.answer != generated_answer:
         submission.answer = generated_answer
         changed = True
 
-    if _is_auto_submission_answer(submission.answer) and submission.submitted_at != completed_at:
+    if should_replace_answer and submission.submitted_at != completed_at:
         submission.submitted_at = completed_at
         changed = True
 
-    if submission.status != 'checked' and submission.status != 'submitted':
-        submission.status = 'submitted'
+    if submission.status != target_status:
+        submission.status = target_status
         changed = True
 
     return changed
 
 
-def sync_student_assignment_submissions_for_lesson(student: User, lesson: Lesson, progress: UserProgress) -> bool:
+def sync_student_assignment_submissions_for_lesson(
+    student: User,
+    lesson: Lesson,
+    progress: UserProgress,
+    answer: str | None = None,
+) -> bool:
     assignments = (
         Assignment.query.join(ClassMembership, ClassMembership.classroom_id == Assignment.classroom_id)
         .filter(ClassMembership.student_id == student.id, Assignment.lesson_id == lesson.id)
@@ -75,7 +97,7 @@ def sync_student_assignment_submissions_for_lesson(student: User, lesson: Lesson
     )
     changed = False
     for assignment in assignments:
-        changed = sync_assignment_submission_from_progress(assignment, student, progress) or changed
+        changed = sync_assignment_submission_from_progress(assignment, student, progress, answer=answer) or changed
     return changed
 
 
@@ -88,7 +110,7 @@ def backfill_assignment_submissions_for_assignment(assignment: Assignment) -> bo
         .filter(
             ClassMembership.classroom_id == assignment.classroom_id,
             UserProgress.lesson_id == assignment.lesson_id,
-            UserProgress.status == 'completed',
+            UserProgress.status.in_(tuple(SYNCABLE_PROGRESS_STATUSES)),
         )
         .all()
     )

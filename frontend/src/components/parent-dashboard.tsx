@@ -2,6 +2,14 @@
 
 import { ParentAccessData } from '@/types'
 
+function submissionStatusLabel(status: string) {
+  if (status === 'pending_review') return 'Ожидает проверки'
+  if (status === 'checked') return 'Проверено: верно'
+  if (status === 'needs_revision') return 'Нужно исправить'
+  if (status === 'submitted') return 'Ответ отправлен'
+  return status
+}
+
 export function ParentDashboard({ data }: { data: ParentAccessData }) {
   return (
     <div className="space-y-6">
@@ -104,7 +112,7 @@ export function ParentDashboard({ data }: { data: ParentAccessData }) {
                   <p className="font-black text-slate-900">{item.student_username}</p>
                   <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-700">{item.score}%</span>
                 </div>
-                <p className="mt-2 text-sm text-slate-600">Статус: {item.status}</p>
+                <p className="mt-2 text-sm text-slate-600">Статус: {submissionStatusLabel(item.status)}</p>
                 {item.feedback && <p className="mt-2 text-sm text-slate-500">Комментарий: {item.feedback}</p>}
               </div>
             ))}

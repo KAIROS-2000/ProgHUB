@@ -1,4 +1,6 @@
 export type UserRole = 'student' | 'teacher' | 'admin' | 'superadmin'
+export type ProgressStatus = 'not_started' | 'in_progress' | 'pending_review' | 'needs_revision' | 'completed'
+export type SubmissionStatus = 'submitted' | 'pending_review' | 'checked' | 'needs_revision'
 
 export interface UserItem {
   id: number
@@ -37,7 +39,7 @@ export interface ProgressItem {
   id: number
   user_id: number
   lesson_id: number
-  status: string
+  status: ProgressStatus
   score: number
   attempts: number
   hints_used: number
@@ -176,7 +178,7 @@ export interface SubmissionItem {
   student_username: string
   answer: string
   score: number
-  status: string
+  status: SubmissionStatus
   feedback?: string | null
   submitted_at: string
 }

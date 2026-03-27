@@ -8,7 +8,7 @@ export default function HomePage() {
 			<section className='mx-auto grid max-w-7xl gap-8 px-6 py-12 lg:grid-cols-[1.05fr_0.95fr] lg:items-center'>
 				<div>
 					<div className='inline-flex rounded-full bg-white px-4 py-2 text-sm font-semibold shadow-sm'>
-						CodeQuest Learning Platform
+						Платформа Кодиумс
 					</div>
 					<h2 className='mt-6 max-w-4xl text-5xl font-black leading-tight text-slate-900 sm:text-6xl'>
 						Курсы программирования с понятным учебным маршрутом.

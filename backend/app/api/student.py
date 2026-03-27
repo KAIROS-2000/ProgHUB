@@ -40,8 +40,12 @@ STATE_MAP = {
 PROGRESS_STATUS_LABELS = {
     'not_started': 'Урок ещё не начат.',
     'in_progress': 'Прогресс сохранён. Урок остаётся в процессе.',
+    'pending_review': 'Урок отправлен учителю и ожидает проверки.',
+    'needs_revision': 'Учитель просит доработать урок и отправить его заново.',
     'completed': 'Урок завершён и отмечен как пройденный.',
 }
+
+MANUAL_REVIEW_PROGRESS_STATUSES = {'pending_review', 'needs_revision'}
 
 
 def _get_or_create_progress(user_id: int, lesson_id: int) -> UserProgress:
@@ -70,12 +74,16 @@ def _status_from_completion_percent(lesson: Lesson, completion_percent: int) -> 
     return 'not_started'
 
 
+def _lesson_requires_teacher_review(lesson: Lesson) -> bool:
+    return lesson.module.is_custom_classroom_module
+
+
 def _lesson_state_for_user(user: User, module: Module, lesson: Lesson, lesson_index: int) -> str:
     progress = UserProgress.query.filter_by(user_id=user.id, lesson_id=lesson.id).first()
     if progress and progress.status == 'completed':
         return STATE_MAP['completed']
     if module.is_custom_classroom_module:
-        return STATE_MAP['current'] if progress and progress.status == 'in_progress' else STATE_MAP['open']
+        return STATE_MAP['current'] if progress and progress.status in {'in_progress', *MANUAL_REVIEW_PROGRESS_STATUSES} else STATE_MAP['open']
     if lesson_index == 0:
         return STATE_MAP['current'] if not progress or progress.status != 'completed' else STATE_MAP['completed']
     prev_lesson = module.lessons[lesson_index - 1]
@@ -181,7 +189,7 @@ def _weekly_activity(student: User) -> list[dict]:
     assignments = AssignmentSubmission.query.filter_by(student_id=student.id).all()
     grouped: dict[str, dict[str, int]] = defaultdict(lambda: {'lessons': 0, 'assignments': 0, 'score_sum': 0, 'score_count': 0})
     for progress in progresses:
-        if progress.completed_at:
+        if progress.status == 'completed' and progress.completed_at:
             key = progress.completed_at.date().isoformat()
             grouped[key]['lessons'] += 1
             grouped[key]['score_sum'] += progress.score
@@ -378,15 +386,24 @@ def complete_lesson(current_user: User, lesson_id: int):
 
     data = request.get_json() or {}
     completion_percent = _clamp_completion_percent(data.get('completion_percent'))
+    submitted_answer = (data.get('answer') or '').strip()
     progress = _get_or_create_progress(current_user.id, lesson.id)
+    manual_review_required = _lesson_requires_teacher_review(lesson)
+    has_practice_task = bool(lesson.tasks)
 
     # Preserve the best saved lesson percentage so repeated openings do not roll progress back.
     effective_percent = max(completion_percent, progress.score)
     progress.score = effective_percent
-    progress.status = _status_from_completion_percent(lesson, effective_percent)
-    if progress.status == 'completed':
+    if manual_review_required and effective_percent >= lesson.passing_score:
+        if progress.status != 'completed' and has_practice_task and not submitted_answer:
+            return {'message': 'Сначала заполни ответ по практике, а затем заверши урок.'}, 400
+        progress.status = 'completed' if progress.status == 'completed' else 'pending_review'
+    else:
+        progress.status = _status_from_completion_percent(lesson, effective_percent)
+
+    if progress.status in {'completed', 'pending_review'}:
         progress.completed_at = progress.completed_at or datetime.now(UTC)
-        sync_student_assignment_submissions_for_lesson(current_user, lesson, progress)
+        sync_student_assignment_submissions_for_lesson(current_user, lesson, progress, answer=submitted_answer or None)
     else:
         progress.completed_at = None
 
@@ -409,32 +426,51 @@ def submit_task(current_user: User, task_id: int):
     if current_user.role == UserRole.STUDENT and _effective_lesson_state_for_student(current_user, task.lesson) == STATE_MAP['locked']:
         return {'message': 'Сначала откройте доступ к этому уроку через предыдущее задание или учителя.'}, 403
     data = request.get_json() or {}
-    answer = (data.get('answer') or '').lower()
+    raw_answer = data.get('answer') or ''
+    answer = raw_answer.lower()
     keywords = [item.lower() for item in task.validation.get('keywords', [])]
     matches = sum(1 for keyword in keywords if keyword in answer)
     score = 100 if keywords and matches == len(keywords) else int((matches / max(len(keywords), 1)) * 100)
+    has_answer = bool(raw_answer.strip())
+    manual_review_required = _lesson_requires_teacher_review(task.lesson)
+    if manual_review_required and has_answer and not keywords:
+        score = 100
 
     progress = _get_or_create_progress(current_user.id, task.lesson_id)
     progress.attempts += 1
-    progress.score = max(progress.score, score)
     passed = score >= task.lesson.passing_score
     was_completed = progress.status == 'completed'
     xp_awarded = 0
-    if passed:
-        progress.status = 'completed'
-        progress.completed_at = progress.completed_at or datetime.now(UTC)
-        if not was_completed:
-            current_user.add_xp(task.xp_reward)
-            xp_awarded = task.xp_reward
+    if manual_review_required:
+        passed = has_answer
+        if progress.status != 'completed':
+            progress.status = 'in_progress' if has_answer else progress.status
+    else:
+        progress.score = max(progress.score, score)
+        if passed:
+            progress.status = 'completed'
+            progress.completed_at = progress.completed_at or datetime.now(UTC)
+            if not was_completed:
+                current_user.add_xp(task.xp_reward)
+                xp_awarded = task.xp_reward
     if progress.status == 'completed':
         sync_student_assignment_submissions_for_lesson(current_user, task.lesson, progress)
     db.session.commit()
-    _award_achievement_if_needed(current_user, code='first_code')
+    if not manual_review_required:
+        _award_achievement_if_needed(current_user, code='first_code')
     return {
         'passed': passed,
         'score': score,
         'xp_awarded': xp_awarded,
-        'feedback': 'Отлично! Решение засчитано.' if passed else 'Почти получилось. Сравни ответ с ключевыми словами темы.',
+        'feedback': (
+            'Ответ сохранён. Теперь заверши урок, чтобы отправить его учителю на проверку.'
+            if manual_review_required and passed
+            else 'Добавь решение, чтобы сохранить ответ для учителя.'
+            if manual_review_required
+            else 'Отлично! Решение засчитано.'
+            if passed
+            else 'Почти получилось. Сравни ответ с ключевыми словами темы.'
+        ),
         'progress': progress.to_dict(),
         'user': current_user.to_dict(),
     }
@@ -465,13 +501,14 @@ def submit_quiz(current_user: User, quiz_id: int):
     passed = score >= quiz.passing_score
     was_completed = progress.status == 'completed'
     xp_awarded = 0
+    manual_review_required = _lesson_requires_teacher_review(quiz.lesson)
     if passed:
-        progress.status = 'completed'
+        progress.status = 'pending_review' if manual_review_required and not was_completed else 'completed'
         progress.completed_at = progress.completed_at or datetime.now(UTC)
-        if not was_completed:
+        if not was_completed and not manual_review_required:
             current_user.add_xp(quiz.xp_reward)
             xp_awarded = quiz.xp_reward
-    if progress.status == 'completed':
+    if progress.status in {'completed', 'pending_review'}:
         sync_student_assignment_submissions_for_lesson(current_user, quiz.lesson, progress)
     db.session.commit()
     return {
@@ -550,12 +587,11 @@ def submit_assignment(current_user: User, assignment_id: int):
     if existing:
         existing.answer = answer
         existing.score = max(existing.score, score)
-        existing.status = 'submitted'
+        existing.status = 'pending_review'
     else:
-        db.session.add(AssignmentSubmission(assignment_id=assignment.id, student_id=current_user.id, answer=answer, score=score, status='submitted'))
-    current_user.add_xp(assignment.xp_reward)
+        db.session.add(AssignmentSubmission(assignment_id=assignment.id, student_id=current_user.id, answer=answer, score=score, status='pending_review'))
     db.session.commit()
-    return {'message': 'Ответ отправлен учителю.', 'user': current_user.to_dict()}
+    return {'message': 'Ответ отправлен учителю на проверку.', 'user': current_user.to_dict()}
 
 
 @student_bp.get('/forum/posts')

@@ -1,6 +1,7 @@
 'use client'
 
 import { FormEvent, useMemo, useState } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { saveTokens } from '@/lib/storage'
@@ -74,7 +75,19 @@ export function AuthForm({ mode, options }: { mode: 'login' | 'register'; option
     <main className="grid min-h-screen place-items-center px-6 py-10">
       <div className="grid w-full max-w-6xl gap-8 lg:grid-cols-[0.95fr_1.05fr]">
         <section className="codequest-card grid-bg overflow-hidden p-8 text-slate-900">
-          <p className="text-sm font-bold uppercase tracking-[0.24em] text-sky-600">CodeQuest</p>
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-white shadow-lg shadow-sky-200 ring-1 ring-sky-100">
+              <Image
+                src="/kodiums-logo.png"
+                alt="Логотип Кодиумс"
+                width={48}
+                height={48}
+                className="h-12 w-12 rounded-full object-cover"
+                priority
+              />
+            </div>
+            <p className="text-sm font-bold uppercase tracking-[0.24em] text-sky-600">Кодиумс</p>
+          </div>
           <h1 className="mt-3 text-4xl font-black">{mode === 'login' ? 'С возвращением!' : 'Создай аккаунт и начни путь'}</h1>
           <p className="mt-4 max-w-xl text-lg leading-8 text-slate-600">
             Платформа объединяет регистрацию, уроки, задания, тесты, XP, уровни и классы с учителем в одном красивом интерфейсе.
@@ -190,7 +203,7 @@ export function AuthForm({ mode, options }: { mode: 'login' | 'register'; option
 
             {error && <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>}
 
-            <button disabled={loading} className="w-full rounded-2xl bg-slate-900 px-5 py-3 text-base font-bold text-white shadow-lg shadow-slate-300 disabled:opacity-60">
+            <button disabled={loading} className="mt-3 w-full rounded-2xl bg-slate-900 px-5 py-3 text-base font-bold text-white shadow-lg shadow-slate-300 disabled:opacity-60">
               {loading ? 'Подождите…' : mode === 'login' ? 'Войти' : 'Создать аккаунт'}
             </button>
           </form>

@@ -27,6 +27,8 @@ from ..seed.bootstrap import generate_code
 teacher_bp = Blueprint('teacher', __name__)
 VALID_AGE_GROUPS = {'junior', 'middle', 'senior'}
 VALID_DIFFICULTIES = {'easy', 'medium', 'hard'}
+REVIEWED_SUBMISSION_STATUSES = {'checked', 'needs_revision'}
+VALID_SUBMISSION_REVIEW_STATUSES = {'checked', 'needs_revision'}
 ASSIGNMENT_TYPE_DEFAULT_TITLES = {
     'lesson_practice': 'Практика по уроку',
     'mini_project': 'Мини-проект',
@@ -86,6 +88,11 @@ def _split_csv(value: str | None) -> list[str]:
 def _normalize_due_date(value: str | None) -> str | None:
     normalized = (value or '').strip()
     return normalized or None
+
+
+def _normalize_submission_review_status(value: str | None) -> str:
+    normalized = (value or 'checked').strip().lower()
+    return normalized if normalized in VALID_SUBMISSION_REVIEW_STATUSES else 'checked'
 
 
 def _compose_assignment_description(data: dict, assignment_type: str) -> str:
@@ -167,7 +174,7 @@ def _assignment_with_stats(assignment: Assignment, submissions: list[AssignmentS
     return {
         **assignment.to_dict(),
         'submissions_count': len(rows),
-        'checked_count': len([row for row in rows if row.status == 'checked']),
+        'checked_count': len([row for row in rows if row.status in REVIEWED_SUBMISSION_STATUSES]),
     }
 
 
@@ -242,6 +249,27 @@ def class_detail(current_user: User, classroom_id: int):
     return {'classroom': classroom.to_dict(), 'students': students, 'assignments': assignments}
 
 
+def _sync_lesson_progress_from_review(submission: AssignmentSubmission) -> None:
+    lesson = submission.assignment.lesson
+    if lesson is None or not lesson.module.is_custom_classroom_module:
+        return
+
+    progress = UserProgress.query.filter_by(user_id=submission.student_id, lesson_id=lesson.id).first()
+    if progress is None:
+        progress = UserProgress(user_id=submission.student_id, lesson_id=lesson.id, status='not_started')
+        db.session.add(progress)
+        db.session.flush()
+
+    progress.score = max(progress.score, submission.score)
+    if submission.status == 'checked':
+        progress.status = 'completed'
+        progress.completed_at = progress.completed_at or submission.submitted_at
+        return
+
+    progress.status = 'needs_revision'
+    progress.completed_at = None
+
+
 @teacher_bp.post('/classes/<int:classroom_id>/lessons')
 @auth_required([UserRole.TEACHER])
 def create_class_lesson(current_user: User, classroom_id: int):
@@ -305,7 +333,7 @@ def create_class_lesson(current_user: User, classroom_id: int):
                 starter_code=starter_code,
                 validation={'keywords': answer_keywords},
                 hints=task_hints,
-                xp_reward=_safe_int(data.get('task_xp_reward'), 30, minimum=0, maximum=500),
+                xp_reward=0,
             )
         )
 
@@ -339,7 +367,7 @@ def create_assignment(current_user: User, classroom_id: int):
         description=encode_assignment_description(description, assignment_type, submission_format),
         difficulty=_normalize_difficulty(data.get('difficulty')),
         due_date=_normalize_due_date(data.get('due_date')),
-        xp_reward=_safe_int(data.get('xp_reward'), 80, minimum=0, maximum=1000),
+        xp_reward=0,
     )
     db.session.add(assignment)
     db.session.commit()
@@ -379,7 +407,8 @@ def grade_submission(current_user: User, submission_id: int):
     data = request.get_json() or {}
     submission.score = _safe_int(data.get('score', submission.score), submission.score, minimum=0, maximum=100)
     submission.feedback = data.get('feedback', submission.feedback)
-    submission.status = data.get('status', 'checked')
+    submission.status = _normalize_submission_review_status(data.get('status'))
+    _sync_lesson_progress_from_review(submission)
     db.session.commit()
     return {'submission': submission.to_dict()}
 

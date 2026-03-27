@@ -16,6 +16,28 @@ type AssignmentType = AssignmentItem['assignment_type']
 type SubmissionFormat = AssignmentItem['submission_format']
 
 type Difficulty = 'easy' | 'medium' | 'hard'
+type LessonBlueprintKey = 'guided' | 'skills' | 'project' | 'revision'
+type LessonPracticeMode = 'none' | 'text' | 'code'
+
+interface LessonBlueprint {
+  label: string
+  short: string
+  description: string
+  durationByAge: Record<'junior' | 'middle' | 'senior', string>
+  passingScore: string
+  taskXpReward: string
+  recommendedPractice: LessonPracticeMode
+  sampleTitle: Record<'junior' | 'middle' | 'senior', string>
+  summary: (theme: string) => string
+  theory: (theme: string) => string
+  keyPoints: string
+  steps: string
+  taskTitle: (theme: string) => string
+  taskPrompt: (theme: string) => string
+  keywords: string
+  hints: string
+  starterCode: string
+}
 
 interface AssignmentFormState {
   title: string
@@ -107,6 +129,15 @@ const SUBMISSION_FORMAT_LABELS: Record<SubmissionFormat, string> = {
   mixed: 'Свободный формат',
 }
 
+const REVIEWED_SUBMISSION_STATUSES = new Set<SubmissionItem['status']>(['checked', 'needs_revision'])
+
+const SUBMISSION_STATUS_LABELS: Record<SubmissionItem['status'], string> = {
+  submitted: 'Отправлено',
+  pending_review: 'Ожидает проверки',
+  checked: 'Верно',
+  needs_revision: 'Неверно',
+}
+
 const EMPTY_ASSIGNMENT_FORM: AssignmentFormState = {
   title: '',
   description: '',
@@ -122,7 +153,22 @@ const EMPTY_ASSIGNMENT_FORM: AssignmentFormState = {
   resources: '',
 }
 
-const EMPTY_LESSON_FORM = {
+const EMPTY_LESSON_FORM: {
+  title: string
+  summary: string
+  theory_text: string
+  key_points: string
+  interactive_steps: string
+  task_title: string
+  task_prompt: string
+  answer_keywords: string
+  starter_code: string
+  task_hints: string
+  age_group: 'junior' | 'middle' | 'senior'
+  duration_minutes: string
+  passing_score: string
+  task_xp_reward: string
+} = {
   title: '',
   summary: '',
   theory_text: '',
@@ -139,6 +185,129 @@ const EMPTY_LESSON_FORM = {
   task_xp_reward: '30',
 }
 
+const LESSON_BLUEPRINT_KEYS: LessonBlueprintKey[] = ['guided', 'skills', 'project', 'revision']
+
+const LESSON_BLUEPRINTS: Record<LessonBlueprintKey, LessonBlueprint> = {
+  guided: {
+    label: 'Понятно с нуля',
+    short: 'Коротко, спокойно, без перегруза.',
+    description: 'Для новой темы, когда нужно быстро ввести ученика в контекст и сразу закрепить смысл.',
+    durationByAge: { junior: '15', middle: '20', senior: '25' },
+    passingScore: '65',
+    taskXpReward: '25',
+    recommendedPractice: 'text',
+    sampleTitle: {
+      junior: 'Как работает алгоритм',
+      middle: 'Переменные и условия',
+      senior: 'Функции и параметры',
+    },
+    summary: (theme) => `Урок знакомит с темой «${theme}» простым языком и показывает, как применить ее на понятном примере.`,
+    theory: (theme) => `Начните с жизненного примера, где тема «${theme}» действительно нужна.\nПотом объясните основной принцип простыми словами.\nЗакончите коротким выводом: что ученик должен запомнить после урока.`,
+    keyPoints: 'Что означает тема простыми словами\nГде она встречается на практике\nКакой шаг здесь самый важный\nКакая ошибка бывает чаще всего',
+    steps: 'Покажите стартовую ситуацию\nРазберите пример по шагам\nПопросите предсказать следующий шаг\nСоберите короткий итог урока',
+    taskTitle: (theme) => `Мини-практика: ${theme}`,
+    taskPrompt: (theme) => `Объясни тему «${theme}» своими словами и выполни короткое упражнение по образцу из урока.`,
+    keywords: 'понятие, шаг, результат',
+    hints: 'Вернись к ключевым идеям урока.\nСравни решение с примером из разбора.\nПроверь, что в ответе есть понятный итог.',
+    starterCode: '',
+  },
+  skills: {
+    label: 'Навык через действие',
+    short: 'Меньше теории, больше повторяемого приема.',
+    description: 'Подходит для уроков, где важнее отработать шаблон решения, чем просто узнать новый термин.',
+    durationByAge: { junior: '20', middle: '30', senior: '35' },
+    passingScore: '70',
+    taskXpReward: '35',
+    recommendedPractice: 'text',
+    sampleTitle: {
+      junior: 'Повторяем команды шаг за шагом',
+      middle: 'Циклы на простых примерах',
+      senior: 'Массивы и поиск элементов',
+    },
+    summary: (theme) => `Урок по теме «${theme}» помогает довести прием до уверенного использования через разбор и самостоятельное повторение.`,
+    theory: (theme) => `Сначала сформулируйте, какой конкретный навык дает тема «${theme}».\nПотом покажите базовый шаблон действий.\nОтдельно подчеркните, как ученик быстро проверит себя.`,
+    keyPoints: 'Как выглядит базовый шаблон решения\nГде ученики ошибаются чаще всего\nКак быстро проверить себя\nКогда этот прием лучше не использовать',
+    steps: 'Соберите решение вместе с классом\nПосле каждого шага задайте вопрос «почему»\nСравните правильный и ошибочный вариант\nДайте короткое повторение по памяти',
+    taskTitle: (theme) => `Тренировка навыка: ${theme}`,
+    taskPrompt: (theme) => `Реши самостоятельную задачу по теме «${theme}» и постарайся повторить тот же алгоритм, что был в разборе.`,
+    keywords: 'алгоритм, проверка, ошибка',
+    hints: 'Сначала повтори порядок шагов из урока.\nПроверь промежуточный результат до финального ответа.\nЕсли запутался, найди шаг, на котором изменилась логика.',
+    starterCode: '',
+  },
+  project: {
+    label: 'Мини-проект',
+    short: 'Урок с заметным результатом на выходе.',
+    description: 'Подходит для тем, где хочется получить артефакт: историю, игру, страницу, мини-инструмент.',
+    durationByAge: { junior: '25', middle: '40', senior: '50' },
+    passingScore: '75',
+    taskXpReward: '60',
+    recommendedPractice: 'code',
+    sampleTitle: {
+      junior: 'Собираем мини-историю из блоков',
+      middle: 'Мини-игра с условиями',
+      senior: 'Трекер задач на функциях',
+    },
+    summary: (theme) => `Урок по теме «${theme}» ведет к небольшому, но законченному результату, который можно показать и объяснить.`,
+    theory: (theme) => `Покажите, какой результат ученик соберет по итогам темы «${theme}».\nРазделите объяснение на три части: идея, структура, проверка результата.\nОбязательно скажите, какой минимум уже считается успехом.`,
+    keyPoints: 'Как выглядит минимально рабочая версия\nКакие части можно собрать по очереди\nКак проверить, что каждая часть работает\nЧто можно улучшить после базовой версии',
+    steps: 'Сначала соберите каркас результата\nДобавьте одну ключевую механику\nПроверьте работоспособность на коротком сценарии\nОбсудите, что улучшить дальше',
+    taskTitle: (theme) => `Мини-проект: ${theme}`,
+    taskPrompt: (theme) => `Собери свою рабочую версию по теме «${theme}». Важно получить результат, который можно открыть, показать или быстро объяснить.`,
+    keywords: 'результат, структура, проверка',
+    hints: 'Сначала добейся минимально рабочего варианта.\nПроверяй результат после каждого крупного шага.\nОпиши, что уже работает, даже если не все готово.',
+    starterCode: '// Здесь можно оставить каркас решения или базовый шаблон.\n',
+  },
+  revision: {
+    label: 'Повторение и закрепление',
+    short: 'Собрать главное перед проверкой.',
+    description: 'Для уроков, где нужно быстро повторить тему, отделить главное от второстепенного и снять типовые ошибки.',
+    durationByAge: { junior: '15', middle: '20', senior: '25' },
+    passingScore: '80',
+    taskXpReward: '20',
+    recommendedPractice: 'none',
+    sampleTitle: {
+      junior: 'Что мы запомнили про алгоритмы',
+      middle: 'Повторение темы перед проверкой',
+      senior: 'Быстрый обзор ключевых паттернов',
+    },
+    summary: (theme) => `Урок помогает быстро повторить тему «${theme}», собрать главное и увидеть, где еще есть пробелы.`,
+    theory: (theme) => `Соберите в одном месте все, что нужно удержать по теме «${theme}».\nСравните близкие понятия, покажите типовые ошибки и дайте короткую памятку для самопроверки.`,
+    keyPoints: 'Какие идеи обязательно помнить\nЧем похожие понятия отличаются\nКакие ошибки чаще всего срезают результат\nПо какому чек-листу себя проверить',
+    steps: 'Попросите учеников назвать все, что они уже помнят\nСоберите общий список ключевых идей\nРазберите 2-3 типовые ошибки\nЗакончите памяткой или чек-листом',
+    taskTitle: (theme) => `Чек-ап по теме: ${theme}`,
+    taskPrompt: (theme) => `Собери короткую памятку по теме «${theme}» и покажи на одном примере, что ты различаешь правильный и ошибочный вариант.`,
+    keywords: 'чек-лист, ошибка, главное',
+    hints: 'Не пытайся записать все, только самое важное.\nСравни правильный и неправильный пример.\nПроверь, можно ли по твоему ответу быстро повторить тему.',
+    starterCode: '',
+  },
+}
+
+const PRACTICE_MODE_OPTIONS: Array<{ value: LessonPracticeMode; label: string; short: string }> = [
+  { value: 'none', label: 'Без встроенной практики', short: 'Только теория и разбор' },
+  { value: 'text', label: 'Мини-практика', short: 'Короткий ответ или упражнение' },
+  { value: 'code', label: 'Код / Blockly', short: 'Редактор или блоки' },
+]
+
+const AGE_GROUP_LABELS: Record<'junior' | 'middle' | 'senior', string> = {
+  junior: 'Junior',
+  middle: 'Middle',
+  senior: 'Senior',
+}
+
+const LESSONS_PER_PAGE = 4
+
+function splitLines(value: string) {
+  return value
+    .split('\n')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function shortenText(value: string, maxLength: number) {
+  if (value.length <= maxLength) return value
+  return `${value.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`
+}
+
 export function TeacherWorkspace() {
   const [overview, setOverview] = useState<TeacherOverviewData | null>(null)
   const [catalog, setCatalog] = useState<LessonCatalogItem[]>([])
@@ -147,10 +316,15 @@ export function TeacherWorkspace() {
   const [assignmentRows, setAssignmentRows] = useState<AssignmentItem[]>([])
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<number | null>(null)
   const [submissions, setSubmissions] = useState<SubmissionItem[]>([])
+  const [feedbackDrafts, setFeedbackDrafts] = useState<Record<number, string>>({})
   const [message, setMessage] = useState('')
   const [classForm, setClassForm] = useState({ name: '', description: '' })
   const [assignmentForm, setAssignmentForm] = useState<AssignmentFormState>(EMPTY_ASSIGNMENT_FORM)
   const [lessonForm, setLessonForm] = useState(EMPTY_LESSON_FORM)
+  const [lessonBlueprint, setLessonBlueprint] = useState<LessonBlueprintKey>('guided')
+  const [lessonPracticeMode, setLessonPracticeMode] = useState<LessonPracticeMode>('text')
+  const [lessonPage, setLessonPage] = useState(1)
+  const [lastCreatedLesson, setLastCreatedLesson] = useState<{ id: number; title: string; summary: string } | null>(null)
 
   const selectedClass = useMemo<ClassroomItem | undefined>(
     () => overview?.classes.find((item) => item.id === selectedClassId),
@@ -164,6 +338,65 @@ export function TeacherWorkspace() {
     () => catalog.find((lesson) => String(lesson.id) === assignmentForm.lesson_id) || null,
     [catalog, assignmentForm.lesson_id],
   )
+  const activeLessonBlueprint = LESSON_BLUEPRINTS[lessonBlueprint]
+  const selectedPracticeMode = PRACTICE_MODE_OPTIONS.find((item) => item.value === lessonPracticeMode) || PRACTICE_MODE_OPTIONS[1]
+  const lessonKeyPoints = useMemo(() => splitLines(lessonForm.key_points), [lessonForm.key_points])
+  const lessonInteractiveSteps = useMemo(() => splitLines(lessonForm.interactive_steps), [lessonForm.interactive_steps])
+  const lessonTaskHints = useMemo(() => splitLines(lessonForm.task_hints), [lessonForm.task_hints])
+  const lessonAnswerKeywords = useMemo(() => lessonForm.answer_keywords.split(',').map((item) => item.trim()).filter(Boolean), [lessonForm.answer_keywords])
+  const lessonPreviewTitle = lessonForm.title.trim() || activeLessonBlueprint.sampleTitle[lessonForm.age_group]
+  const lessonPreviewSummary = lessonForm.summary.trim() || activeLessonBlueprint.summary(lessonPreviewTitle)
+  const lessonHasPractice = lessonPracticeMode !== 'none'
+  const lessonProgress = useMemo(
+    () => [
+      {
+        label: 'Основа урока',
+        done: Boolean(lessonForm.title.trim() && lessonForm.summary.trim()),
+        detail: 'Название и краткое описание',
+      },
+      {
+        label: 'Подача темы',
+        done: Boolean(lessonForm.theory_text.trim() || lessonKeyPoints.length >= 3),
+        detail: 'Объяснение или тезисы',
+      },
+      {
+        label: 'Маршрут урока',
+        done: lessonInteractiveSteps.length >= 2,
+        detail: 'Минимум два шага разбора',
+      },
+      {
+        label: 'Практика',
+        done: lessonHasPractice ? Boolean(lessonForm.task_title.trim() || lessonForm.task_prompt.trim()) : true,
+        detail: lessonHasPractice ? 'Есть задача для закрепления' : 'Практика вынесена отдельно',
+      },
+    ],
+    [
+      lessonForm.summary,
+      lessonForm.task_prompt,
+      lessonForm.task_title,
+      lessonForm.theory_text,
+      lessonForm.title,
+      lessonHasPractice,
+      lessonInteractiveSteps.length,
+      lessonKeyPoints.length,
+    ],
+  )
+  const lessonCompletion = Math.round((lessonProgress.filter((item) => item.done).length / lessonProgress.length) * 100)
+  const messageIsError = /^не удалось|^ошибка/i.test(message.trim())
+  const reviewedCount = submissions.filter((item) => REVIEWED_SUBMISSION_STATUSES.has(item.status)).length
+  const totalLessonPages = Math.max(1, Math.ceil(catalog.length / LESSONS_PER_PAGE))
+  const paginatedLessons = useMemo(
+    () => catalog.slice((lessonPage - 1) * LESSONS_PER_PAGE, lessonPage * LESSONS_PER_PAGE),
+    [catalog, lessonPage],
+  )
+
+  useEffect(() => {
+    setLessonPage(1)
+  }, [selectedClassId])
+
+  useEffect(() => {
+    setLessonPage((current) => Math.min(current, totalLessonPages))
+  }, [totalLessonPages])
 
   function patchAssignmentStats(assignmentId: number, rows: SubmissionItem[]) {
     setAssignmentRows((current) => current.map((assignment) => (
@@ -171,7 +404,7 @@ export function TeacherWorkspace() {
         ? {
             ...assignment,
             submissions_count: rows.length,
-            checked_count: rows.filter((item) => item.status === 'checked').length,
+            checked_count: rows.filter((item) => REVIEWED_SUBMISSION_STATUSES.has(item.status)).length,
           }
         : assignment
     )))
@@ -216,6 +449,65 @@ export function TeacherWorkspace() {
     }))
   }
 
+  function applyLessonBlueprint(replaceFilledFields = false) {
+    const template = LESSON_BLUEPRINTS[lessonBlueprint]
+    setLessonForm((current) => {
+      const useTemplate = (value: string) => replaceFilledFields || !value.trim()
+      const nextTitle = useTemplate(current.title) ? template.sampleTitle[current.age_group] : current.title
+      const theme = nextTitle.trim() || template.sampleTitle[current.age_group]
+      return {
+        ...current,
+        title: nextTitle,
+        summary: useTemplate(current.summary) ? template.summary(theme) : current.summary,
+        theory_text: useTemplate(current.theory_text) ? template.theory(theme) : current.theory_text,
+        key_points: useTemplate(current.key_points) ? template.keyPoints : current.key_points,
+        interactive_steps: useTemplate(current.interactive_steps) ? template.steps : current.interactive_steps,
+        task_title: useTemplate(current.task_title) ? template.taskTitle(theme) : current.task_title,
+        task_prompt: useTemplate(current.task_prompt) ? template.taskPrompt(theme) : current.task_prompt,
+        answer_keywords: useTemplate(current.answer_keywords) ? template.keywords : current.answer_keywords,
+        task_hints: useTemplate(current.task_hints) ? template.hints : current.task_hints,
+        starter_code: lessonPracticeMode === 'code' && useTemplate(current.starter_code) ? template.starterCode : current.starter_code,
+        duration_minutes: useTemplate(current.duration_minutes) ? template.durationByAge[current.age_group] : current.duration_minutes,
+        passing_score: useTemplate(current.passing_score) ? template.passingScore : current.passing_score,
+        task_xp_reward: useTemplate(current.task_xp_reward) ? template.taskXpReward : current.task_xp_reward,
+      }
+    })
+  }
+
+  function applyLessonRecommendations() {
+    const template = LESSON_BLUEPRINTS[lessonBlueprint]
+    setLessonForm((current) => ({
+      ...current,
+      duration_minutes: template.durationByAge[current.age_group],
+      passing_score: template.passingScore,
+      task_xp_reward: template.taskXpReward,
+      starter_code: lessonPracticeMode === 'code' && !current.starter_code.trim() ? template.starterCode : current.starter_code,
+    }))
+  }
+
+  function resetLessonComposer() {
+    setLessonForm({
+      ...EMPTY_LESSON_FORM,
+      age_group: lessonForm.age_group,
+      duration_minutes: activeLessonBlueprint.durationByAge[lessonForm.age_group],
+      passing_score: activeLessonBlueprint.passingScore,
+      task_xp_reward: activeLessonBlueprint.taskXpReward,
+      starter_code: lessonPracticeMode === 'code' ? activeLessonBlueprint.starterCode : '',
+    })
+  }
+
+  function useCatalogLessonAsStartingPoint(lesson: LessonCatalogItem) {
+    setLessonForm((current) => ({
+      ...current,
+      title: lesson.title,
+      summary: lesson.summary,
+      age_group: lesson.module_age_group,
+      duration_minutes: String(lesson.duration_minutes),
+      passing_score: String(lesson.passing_score),
+    }))
+    setMessage(`Черновик заполнен на основе урока «${lesson.title}». Добавьте свой контент и сохраните авторскую версию.`)
+  }
+
   async function loadOverview() {
     const data = await api<TeacherOverviewData>('/teacher/overview', undefined, true)
     setOverview(data)
@@ -252,6 +544,10 @@ export function TeacherWorkspace() {
       api<TeacherOverviewData>('/teacher/overview', undefined, true),
     ])
     setSubmissions(data.submissions)
+    setFeedbackDrafts(data.submissions.reduce<Record<number, string>>((acc, submission) => {
+      acc[submission.id] = submission.feedback || ''
+      return acc
+    }, {}))
     patchAssignmentStats(assignmentId, data.submissions)
     setOverview(nextOverview)
   }
@@ -266,8 +562,10 @@ export function TeacherWorkspace() {
       setClassDetail(null)
       setAssignmentRows([])
       setSelectedAssignmentId(null)
+      setLastCreatedLesson(null)
       return
     }
+    setLastCreatedLesson(null)
     Promise.all([loadClassDetails(selectedClassId), loadCatalog(selectedClassId)]).catch(() => {
       setMessage('Не удалось загрузить уроки и задания выбранного класса.')
     })
@@ -275,10 +573,14 @@ export function TeacherWorkspace() {
 
   useEffect(() => {
     if (selectedAssignmentId) {
-      loadSubmissions(selectedAssignmentId).catch(() => setSubmissions([]))
+      loadSubmissions(selectedAssignmentId).catch(() => {
+        setSubmissions([])
+        setFeedbackDrafts({})
+      })
       return
     }
     setSubmissions([])
+    setFeedbackDrafts({})
   }, [selectedAssignmentId])
 
   async function createClass(event: FormEvent) {
@@ -292,33 +594,53 @@ export function TeacherWorkspace() {
   async function createLesson(event: FormEvent) {
     event.preventDefault()
     if (!selectedClassId) return
-    const data = await api<{ lesson: { id: number; title: string; summary: string } }>(
-      `/teacher/classes/${selectedClassId}/lessons`,
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          ...lessonForm,
-          duration_minutes: Number(lessonForm.duration_minutes),
-          passing_score: Number(lessonForm.passing_score),
-          task_xp_reward: Number(lessonForm.task_xp_reward),
-        }),
-      },
-      true,
-    )
-    setLessonForm(EMPTY_LESSON_FORM)
-    setAssignmentForm((current) => ({
-      ...current,
-      assignment_type: 'lesson_practice',
-      submission_format: ASSIGNMENT_TEMPLATES.lesson_practice.submission_format,
-      lesson_id: String(data.lesson.id),
-      title: current.title || `Задание по уроку: ${data.lesson.title}`,
-      description: current.description || data.lesson.summary,
-      learning_goal: current.learning_goal || ASSIGNMENT_TEMPLATES.lesson_practice.learning_goal,
-      work_steps: current.work_steps || ASSIGNMENT_TEMPLATES.lesson_practice.work_steps,
-      success_criteria: current.success_criteria || ASSIGNMENT_TEMPLATES.lesson_practice.success_criteria,
-    }))
-    setMessage('Авторский урок создан. Его уже можно назначить классу.')
-    await Promise.all([loadCatalog(selectedClassId), loadClassDetails(selectedClassId)])
+    try {
+      const data = await api<{ lesson: { id: number; title: string; summary: string } }>(
+        `/teacher/classes/${selectedClassId}/lessons`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            ...lessonForm,
+            task_title: lessonHasPractice
+              ? (lessonForm.task_title.trim() || activeLessonBlueprint.taskTitle(lessonPreviewTitle))
+              : '',
+            task_prompt: lessonHasPractice
+              ? (lessonForm.task_prompt.trim() || activeLessonBlueprint.taskPrompt(lessonPreviewTitle))
+              : '',
+            answer_keywords: lessonHasPractice ? lessonForm.answer_keywords : '',
+            starter_code: lessonPracticeMode === 'code' ? lessonForm.starter_code : '',
+            task_hints: lessonHasPractice ? lessonForm.task_hints : '',
+            duration_minutes: Number(lessonForm.duration_minutes),
+            passing_score: Number(lessonForm.passing_score),
+          }),
+        },
+        true,
+      )
+      setLessonForm({
+        ...EMPTY_LESSON_FORM,
+        age_group: lessonForm.age_group,
+        duration_minutes: activeLessonBlueprint.durationByAge[lessonForm.age_group],
+        passing_score: activeLessonBlueprint.passingScore,
+        task_xp_reward: activeLessonBlueprint.taskXpReward,
+        starter_code: lessonPracticeMode === 'code' ? activeLessonBlueprint.starterCode : '',
+      })
+      setLastCreatedLesson(data.lesson)
+      setAssignmentForm((current) => ({
+        ...current,
+        assignment_type: 'lesson_practice',
+        submission_format: ASSIGNMENT_TEMPLATES.lesson_practice.submission_format,
+        lesson_id: String(data.lesson.id),
+        title: current.title || `Задание по уроку: ${data.lesson.title}`,
+        description: current.description || data.lesson.summary,
+        learning_goal: current.learning_goal || ASSIGNMENT_TEMPLATES.lesson_practice.learning_goal,
+        work_steps: current.work_steps || ASSIGNMENT_TEMPLATES.lesson_practice.work_steps,
+        success_criteria: current.success_criteria || ASSIGNMENT_TEMPLATES.lesson_practice.success_criteria,
+      }))
+      setMessage('Авторский урок создан. Его уже можно открыть и сразу назначить классу.')
+      await Promise.all([loadCatalog(selectedClassId), loadClassDetails(selectedClassId)])
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Не удалось создать урок.')
+    }
   }
 
   async function createAssignment(event: FormEvent) {
@@ -331,7 +653,6 @@ export function TeacherWorkspace() {
         body: JSON.stringify({
           ...assignmentForm,
           lesson_id: assignmentForm.lesson_id ? Number(assignmentForm.lesson_id) : null,
-          xp_reward: Number(assignmentForm.xp_reward),
         }),
       },
       true,
@@ -346,16 +667,20 @@ export function TeacherWorkspace() {
     await loadClassDetails(selectedClassId)
   }
 
-  async function gradeSubmission(submissionId: number, currentScore: number, currentFeedback?: string | null) {
+  async function gradeSubmission(submissionId: number, status: 'checked' | 'needs_revision', currentScore: number, currentFeedback?: string | null) {
     await api(
       `/teacher/submissions/${submissionId}/grade`,
       {
         method: 'PATCH',
-        body: JSON.stringify({ score: currentScore, feedback: currentFeedback || 'Проверено учителем.', status: 'checked' }),
+        body: JSON.stringify({
+          score: currentScore,
+          feedback: currentFeedback || (status === 'checked' ? 'Урок выполнен верно.' : 'Нужно доработать и отправить ещё раз.'),
+          status,
+        }),
       },
       true,
     )
-    setMessage('Проверка сохранена.')
+    setMessage(status === 'checked' ? 'Урок отмечен как выполненный.' : 'Урок отправлен на доработку.')
     if (selectedAssignmentId) {
       await loadSubmissions(selectedAssignmentId)
     }
@@ -363,7 +688,26 @@ export function TeacherWorkspace() {
 
   return (
     <div className="space-y-6">
-      {message && <div className="codequest-card bg-emerald-50 p-4 text-sm font-semibold text-emerald-700">{message}</div>}
+      {message && <div className={`codequest-card p-4 text-sm font-semibold ${messageIsError ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}>{message}</div>}
+      {lastCreatedLesson && (
+        <div className="codequest-card border border-emerald-200 bg-emerald-50/80 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-bold uppercase tracking-[0.18em] text-emerald-600">Последний созданный урок</p>
+              <h3 className="mt-1 text-xl font-black text-slate-900">{lastCreatedLesson.title}</h3>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{lastCreatedLesson.summary}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link href={`/lessons/${lastCreatedLesson.id}`} className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
+                Открыть урок
+              </Link>
+              <a href="#assignment-builder" className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-700">
+                Назначить классу
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
 
       <section className="grid gap-4 md:grid-cols-4">
         {[
@@ -411,6 +755,50 @@ export function TeacherWorkspace() {
               ))}
             </div>
           </div>
+
+          <section className="codequest-card p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold uppercase tracking-[0.2em] text-emerald-600">Ученики класса</p>
+                <h2 className="mt-2 text-2xl font-black text-slate-900">{selectedClass?.name || 'Список появится после выбора класса'}</h2>
+              </div>
+              {selectedClass && (
+                <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">
+                  {classDetail?.students.length || 0} учен.
+                </span>
+              )}
+            </div>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              {selectedClass
+                ? 'Быстрый просмотр состава класса и прогресса учеников.'
+                : 'Выберите класс выше, чтобы увидеть учеников и их прогресс.'}
+            </p>
+
+            <div className="mt-5 space-y-3">
+              {classDetail?.students.length ? (
+                classDetail.students.map((student) => (
+                  <div key={student.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-lg font-black text-slate-900">{student.full_name}</p>
+                        <p className="text-sm text-slate-500">@{student.username}</p>
+                      </div>
+                      <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-700">XP {student.xp}</span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-slate-600">
+                      <span className="rounded-full bg-white px-3 py-1">Уровень {student.level}</span>
+                      <span className="rounded-full bg-white px-3 py-1">Уроков {student.completed_lessons}</span>
+                      <span className="rounded-full bg-white px-3 py-1">Средний балл {student.average_score}%</span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-500">
+                  В выбранном классе пока нет учеников.
+                </div>
+              )}
+            </div>
+          </section>
         </div>
 
         <div className="space-y-6">
@@ -422,50 +810,228 @@ export function TeacherWorkspace() {
               </div>
               {selectedClass && <span className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Код {selectedClass.code}</span>}
             </div>
-            <p className="mt-3 text-slate-600">{classDetail?.classroom.description || 'Здесь будет список учеников, статистика и назначенные задания.'}</p>
+            <p className="mt-3 text-slate-600">{classDetail?.classroom.description || 'Выберите класс, чтобы назначать уроки и проверять работы.'}</p>
 
-            <div className="mt-5 grid gap-3 md:grid-cols-2">
-              {classDetail?.students.map((student) => (
-                <div key={student.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-lg font-black text-slate-900">{student.full_name}</p>
-                  <p className="text-sm text-slate-500">@{student.username}</p>
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-slate-600">
-                    <span className="rounded-full bg-white px-3 py-1">XP {student.xp}</span>
-                    <span className="rounded-full bg-white px-3 py-1">Уровень {student.level}</span>
-                    <span className="rounded-full bg-white px-3 py-1">Уроков {student.completed_lessons}</span>
-                    <span className="rounded-full bg-white px-3 py-1">Средний балл {student.average_score}%</span>
-                  </div>
-                </div>
-              ))}
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Учеников</p>
+                <p className="mt-2 text-3xl font-black text-slate-900">{classDetail?.students.length || 0}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Заданий</p>
+                <p className="mt-2 text-3xl font-black text-slate-900">{assignmentRows.length}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Проверено</p>
+                <p className="mt-2 text-3xl font-black text-slate-900">{reviewedCount}</p>
+              </div>
             </div>
           </section>
 
-          <form onSubmit={createLesson} className="codequest-card p-6">
-            <p className="text-sm font-bold uppercase tracking-[0.2em] text-emerald-600">Свой урок</p>
-            <h3 className="mt-2 text-2xl font-black text-slate-900">Создать урок для этого класса</h3>
-            <div className="mt-5 grid gap-3 md:grid-cols-2">
-              <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder="Название урока" value={lessonForm.title} onChange={(e) => setLessonForm({ ...lessonForm, title: e.target.value })} />
-              <select className="rounded-2xl border border-slate-200 px-4 py-3" value={lessonForm.age_group} onChange={(e) => setLessonForm({ ...lessonForm, age_group: e.target.value })}>
-                <option value="junior">junior</option>
-                <option value="middle">middle</option>
-                <option value="senior">senior</option>
-              </select>
-              <textarea className="min-h-24 rounded-2xl border border-slate-200 px-4 py-3 md:col-span-2" placeholder="Краткое описание урока" value={lessonForm.summary} onChange={(e) => setLessonForm({ ...lessonForm, summary: e.target.value })} />
-              <textarea className="min-h-32 rounded-2xl border border-slate-200 px-4 py-3 md:col-span-2" placeholder="Объяснение темы" value={lessonForm.theory_text} onChange={(e) => setLessonForm({ ...lessonForm, theory_text: e.target.value })} />
-              <textarea className="min-h-24 rounded-2xl border border-slate-200 px-4 py-3" placeholder="Ключевые идеи" value={lessonForm.key_points} onChange={(e) => setLessonForm({ ...lessonForm, key_points: e.target.value })} />
-              <textarea className="min-h-24 rounded-2xl border border-slate-200 px-4 py-3" placeholder="Шаги разбора" value={lessonForm.interactive_steps} onChange={(e) => setLessonForm({ ...lessonForm, interactive_steps: e.target.value })} />
-              <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder="Название практики" value={lessonForm.task_title} onChange={(e) => setLessonForm({ ...lessonForm, task_title: e.target.value })} />
-              <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder="Ключевые слова ответа" value={lessonForm.answer_keywords} onChange={(e) => setLessonForm({ ...lessonForm, answer_keywords: e.target.value })} />
-              <textarea className="min-h-24 rounded-2xl border border-slate-200 px-4 py-3 md:col-span-2" placeholder="Формулировка практического задания" value={lessonForm.task_prompt} onChange={(e) => setLessonForm({ ...lessonForm, task_prompt: e.target.value })} />
-              <textarea className="min-h-28 rounded-2xl border border-slate-200 px-4 py-3 md:col-span-2" placeholder="Стартовый код или шаблон ответа" value={lessonForm.starter_code} onChange={(e) => setLessonForm({ ...lessonForm, starter_code: e.target.value })} />
-              <textarea className="min-h-24 rounded-2xl border border-slate-200 px-4 py-3 md:col-span-2" placeholder="Подсказки" value={lessonForm.task_hints} onChange={(e) => setLessonForm({ ...lessonForm, task_hints: e.target.value })} />
-              <div className="grid grid-cols-3 gap-3 md:col-span-2">
-                <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder="Минуты" value={lessonForm.duration_minutes} onChange={(e) => setLessonForm({ ...lessonForm, duration_minutes: e.target.value })} />
-                <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder="Порог %" value={lessonForm.passing_score} onChange={(e) => setLessonForm({ ...lessonForm, passing_score: e.target.value })} />
-                <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder="XP за практику" value={lessonForm.task_xp_reward} onChange={(e) => setLessonForm({ ...lessonForm, task_xp_reward: e.target.value })} />
+          <form onSubmit={createLesson} className="codequest-card overflow-hidden">
+            <div
+              className="border-b border-white/40 p-6 text-white"
+              style={{
+                backgroundColor: '#0f172a',
+                backgroundImage: `
+                  linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+                  linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+                  linear-gradient(135deg, #0f172a 0%, #1d4ed8 48%, #10b981 100%)
+                `,
+                backgroundSize: '30px 30px, 30px 30px, 100% 100%',
+              }}
+            >
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-bold uppercase tracking-[0.22em] text-emerald-100">Конструктор урока</p>
+                  <h3 className="mt-3 text-3xl font-black">Соберите урок по шагам</h3>
+                  <p className="mt-3 max-w-2xl text-sm leading-6 text-sky-50/90">Выберите шаблон, заполните основу и проверьте короткий предпросмотр справа.</p>
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs font-semibold">
+                  <span className="rounded-full bg-white/12 px-3 py-2 backdrop-blur">Класс: {selectedClass?.name || 'не выбран'}</span>
+                  <span className="rounded-full bg-white/12 px-3 py-2 backdrop-blur">Готовность {lessonCompletion}%</span>
+                  <span className="rounded-full bg-white/12 px-3 py-2 backdrop-blur">{selectedPracticeMode.label}</span>
+                </div>
               </div>
             </div>
-            <button disabled={!selectedClassId} className="mt-4 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Создать урок</button>
+
+            <div className="grid gap-6 p-6 xl:grid-cols-[minmax(0,1.15fr)_320px]">
+              <div className="min-w-0 space-y-5">
+                <div className="rounded-[26px] border border-slate-200 bg-slate-50/80 p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">1. Сценарий</p>
+                      <h4 className="mt-2 text-2xl font-black text-slate-900">Выберите шаблон</h4>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" onClick={() => applyLessonBlueprint(false)} className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-700">Дополнить пустые поля</button>
+                      <button type="button" onClick={() => applyLessonBlueprint(true)} className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-700">Перезаписать шаблоном</button>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    {LESSON_BLUEPRINT_KEYS.map((key) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setLessonBlueprint(key)}
+                        className={`rounded-[24px] border p-4 text-left transition ${lessonBlueprint === key ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-800 hover:border-slate-300'}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-lg font-black">{LESSON_BLUEPRINTS[key].label}</p>
+                            <p className={`mt-1 text-sm ${lessonBlueprint === key ? 'text-slate-300' : 'text-slate-500'}`}>{LESSON_BLUEPRINTS[key].short}</p>
+                          </div>
+                          <span className={`rounded-full px-3 py-1 text-xs font-bold ${lessonBlueprint === key ? 'bg-white text-slate-900' : 'bg-slate-100 text-slate-600'}`}>{lessonBlueprint === key ? 'Выбран' : 'Шаблон'}</span>
+                        </div>
+                        <p className={`mt-3 text-sm leading-5 ${lessonBlueprint === key ? 'text-slate-200' : 'text-slate-600'}`}>
+                          {shortenText(LESSON_BLUEPRINTS[key].description, 92)}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-[26px] border border-slate-200 bg-white p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">2. Формат</p>
+                      <h4 className="mt-2 text-2xl font-black text-slate-900">Тип практики</h4>
+                    </div>
+                    <button type="button" onClick={applyLessonRecommendations} className="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">Подставить рекомендации</button>
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-3">
+                    {PRACTICE_MODE_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setLessonPracticeMode(option.value)}
+                        className={`rounded-[24px] border p-4 text-left transition ${lessonPracticeMode === option.value ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+                      >
+                        <p className="text-base font-black text-slate-900">{option.label}</p>
+                        <p className="mt-2 text-sm leading-6 text-slate-600">{option.short}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-[26px] border border-slate-200 bg-white p-5">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">3. Основа урока</p>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <input className="rounded-2xl border border-slate-200 px-4 py-3 md:col-span-2" placeholder={activeLessonBlueprint.sampleTitle[lessonForm.age_group]} value={lessonForm.title} onChange={(e) => setLessonForm({ ...lessonForm, title: e.target.value })} />
+                    <select className="rounded-2xl border border-slate-200 px-4 py-3" value={lessonForm.age_group} onChange={(e) => setLessonForm({ ...lessonForm, age_group: e.target.value as 'junior' | 'middle' | 'senior' })}>
+                      <option value="junior">Junior</option>
+                      <option value="middle">Middle</option>
+                      <option value="senior">Senior</option>
+                    </select>
+                    <div className="grid grid-cols-2 gap-3">
+                      <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder="Минуты" type="number" min={5} max={180} value={lessonForm.duration_minutes} onChange={(e) => setLessonForm({ ...lessonForm, duration_minutes: e.target.value })} />
+                      <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder="Порог %" type="number" min={0} max={100} value={lessonForm.passing_score} onChange={(e) => setLessonForm({ ...lessonForm, passing_score: e.target.value })} />
+                    </div>
+                    <textarea className="min-h-24 rounded-2xl border border-slate-200 px-4 py-3 md:col-span-2" placeholder={activeLessonBlueprint.summary(lessonPreviewTitle)} value={lessonForm.summary} onChange={(e) => setLessonForm({ ...lessonForm, summary: e.target.value })} />
+                  </div>
+                </div>
+
+                <div className="rounded-[26px] border border-slate-200 bg-white p-5">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">4. Содержание</p>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <textarea className="min-h-32 rounded-2xl border border-slate-200 px-4 py-3 md:col-span-2" placeholder={activeLessonBlueprint.theory(lessonPreviewTitle)} value={lessonForm.theory_text} onChange={(e) => setLessonForm({ ...lessonForm, theory_text: e.target.value })} />
+                    <div>
+                      <textarea className="min-h-28 w-full rounded-2xl border border-slate-200 px-4 py-3" placeholder={activeLessonBlueprint.keyPoints} value={lessonForm.key_points} onChange={(e) => setLessonForm({ ...lessonForm, key_points: e.target.value })} />
+                      <p className="mt-2 text-xs text-slate-500">Пунктов: {lessonKeyPoints.length || 0}. Каждая новая строка станет отдельной идеей.</p>
+                    </div>
+                    <div>
+                      <textarea className="min-h-28 w-full rounded-2xl border border-slate-200 px-4 py-3" placeholder={activeLessonBlueprint.steps} value={lessonForm.interactive_steps} onChange={(e) => setLessonForm({ ...lessonForm, interactive_steps: e.target.value })} />
+                      <p className="mt-2 text-xs text-slate-500">Шагов: {lessonInteractiveSteps.length || 0}. Каждая новая строка станет отдельным шагом разбора.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-[26px] border border-slate-200 bg-white p-5">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">5. Практика и проверка</p>
+                  {!lessonHasPractice ? (
+                    <div className="mt-4 rounded-[22px] border border-dashed border-slate-300 bg-slate-50 p-5 text-sm leading-6 text-slate-600">
+                      Урок сохранится без встроенной практики. Закрепление можно выдать отдельным заданием ниже.
+                    </div>
+                  ) : (
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder={activeLessonBlueprint.taskTitle(lessonPreviewTitle)} value={lessonForm.task_title} onChange={(e) => setLessonForm({ ...lessonForm, task_title: e.target.value })} />
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                        XP не начисляется. Ответ уйдёт на ручную проверку.
+                      </div>
+                      <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder={activeLessonBlueprint.keywords} value={lessonForm.answer_keywords} onChange={(e) => setLessonForm({ ...lessonForm, answer_keywords: e.target.value })} />
+                      <textarea className="min-h-24 rounded-2xl border border-slate-200 px-4 py-3 md:col-span-2" placeholder={activeLessonBlueprint.taskPrompt(lessonPreviewTitle)} value={lessonForm.task_prompt} onChange={(e) => setLessonForm({ ...lessonForm, task_prompt: e.target.value })} />
+                      {lessonPracticeMode === 'code' && (
+                        <textarea className="min-h-28 rounded-2xl border border-slate-200 px-4 py-3 font-mono text-xs leading-6 md:col-span-2" placeholder={activeLessonBlueprint.starterCode || 'Стартовый код или каркас ответа'} value={lessonForm.starter_code} onChange={(e) => setLessonForm({ ...lessonForm, starter_code: e.target.value })} />
+                      )}
+                      <textarea className="min-h-24 rounded-2xl border border-slate-200 px-4 py-3 md:col-span-2" placeholder={activeLessonBlueprint.hints} value={lessonForm.task_hints} onChange={(e) => setLessonForm({ ...lessonForm, task_hints: e.target.value })} />
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-[26px] border border-slate-200 bg-slate-50/80 p-5">
+                  <div>
+                    <p className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Финальный шаг</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      {selectedClassId ? 'После создания урок сразу появится в библиотеке класса и привяжется к конструктору задания.' : 'Чтобы сохранить урок, сначала выберите класс слева.'}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={resetLessonComposer} className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-700">Очистить черновик</button>
+                    <button disabled={!selectedClassId} className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Создать урок</button>
+                  </div>
+                </div>
+              </div>
+
+              <aside className="min-w-0 space-y-4">
+                <div className="rounded-[26px] border border-slate-900 bg-slate-900 p-5 text-white">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Готовность черновика</p>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
+                    <div className="h-full rounded-full bg-emerald-400" style={{ width: `${lessonCompletion}%` }} />
+                  </div>
+                  <div className="mt-4 space-y-3">
+                    {lessonProgress.map((item) => (
+                      <div key={item.label} className="rounded-2xl bg-white/6 p-3">
+                        <p className="text-sm font-semibold text-white">{item.label}</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-300">{item.detail}</p>
+                        <p className={`mt-2 text-xs font-bold uppercase tracking-[0.14em] ${item.done ? 'text-emerald-300' : 'text-slate-500'}`}>{item.done ? 'готово' : 'нужно заполнить'}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-[26px] border border-emerald-200 bg-emerald-50/80 p-5">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-600">Предпросмотр урока</p>
+                  <h4 className="mt-2 text-2xl font-black text-slate-900">{lessonPreviewTitle}</h4>
+                  <p className="mt-3 text-sm leading-6 text-slate-700">{shortenText(lessonPreviewSummary, 150)}</p>
+                  <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold text-slate-700">
+                    <span className="rounded-full bg-white px-3 py-1">{AGE_GROUP_LABELS[lessonForm.age_group as keyof typeof AGE_GROUP_LABELS]}</span>
+                    <span className="rounded-full bg-white px-3 py-1">{lessonForm.duration_minutes} мин</span>
+                    <span className="rounded-full bg-white px-3 py-1">Порог {lessonForm.passing_score}%</span>
+                    <span className="rounded-full bg-white px-3 py-1">{selectedPracticeMode.label}</span>
+                  </div>
+                  <div className="mt-4 space-y-3">
+                    <div className="rounded-2xl bg-white p-4">
+                      <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Ключевые идеи</p>
+                      {lessonKeyPoints.length > 0 ? <p className="mt-2 text-sm leading-6 text-slate-700">{lessonKeyPoints.slice(0, 3).join(' · ')}</p> : <p className="mt-2 text-sm text-slate-500">Пока не добавлены.</p>}
+                    </div>
+                    <div className="rounded-2xl bg-white p-4">
+                      <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Шаги разбора</p>
+                      {lessonInteractiveSteps.length > 0 ? <p className="mt-2 text-sm leading-6 text-slate-700">{lessonInteractiveSteps.slice(0, 3).join(' · ')}</p> : <p className="mt-2 text-sm text-slate-500">Пока не добавлены.</p>}
+                    </div>
+                    <div className="rounded-2xl bg-white p-4">
+                      <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Практика</p>
+                      {lessonHasPractice ? (
+                        <div className="mt-2 text-sm leading-6 text-slate-700">
+                          <p className="font-semibold text-slate-900">{lessonForm.task_title.trim() || activeLessonBlueprint.taskTitle(lessonPreviewTitle)}</p>
+                          <p className="mt-1">{shortenText(lessonForm.task_prompt.trim() || activeLessonBlueprint.taskPrompt(lessonPreviewTitle), 120)}</p>
+                          <p className="mt-2 text-xs text-slate-500">Ключевых слов: {lessonAnswerKeywords.length || 0} · Подсказок: {lessonTaskHints.length || 0}</p>
+                        </div>
+                      ) : <p className="mt-2 text-sm text-slate-500">Практика будет вынесена в отдельное задание.</p>}
+                    </div>
+                  </div>
+                </div>
+              </aside>
+            </div>
           </form>
 
           <section className="codequest-card p-6">
@@ -474,11 +1040,14 @@ export function TeacherWorkspace() {
                 <p className="text-sm font-bold uppercase tracking-[0.2em] text-emerald-600">Уроки класса</p>
                 <h3 className="mt-2 text-2xl font-black text-slate-900">Библиотека + авторские уроки</h3>
               </div>
-              <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">{catalog.length} уроков доступно</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">{catalog.length} уроков доступно</span>
+                <span className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-600">Стр. {lessonPage} из {totalLessonPages}</span>
+              </div>
             </div>
 
             <div className="mt-5 grid gap-3 md:grid-cols-2">
-              {catalog.map((lesson) => (
+              {paginatedLessons.map((lesson) => (
                 <div key={lesson.id} className={`rounded-2xl border p-4 ${lesson.source === 'teacher' ? 'border-emerald-200 bg-emerald-50/60' : 'border-slate-200 bg-slate-50'}`}>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
@@ -487,10 +1056,13 @@ export function TeacherWorkspace() {
                     </div>
                     <span className={`rounded-full px-3 py-1 text-xs font-bold ${lesson.source === 'teacher' ? 'bg-white text-emerald-700' : 'bg-white text-sky-700'}`}>{lesson.source_label}</span>
                   </div>
-                  <p className="mt-3 text-sm leading-6 text-slate-600">{lesson.summary}</p>
+                  <p className="mt-3 text-sm leading-6 text-slate-600">{shortenText(lesson.summary, 150)}</p>
                   <div className="mt-4 flex flex-wrap gap-2">
                     <button type="button" onClick={() => selectLessonForAssignment(lesson)} className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
                       Выбрать для задания
+                    </button>
+                    <button type="button" onClick={() => useCatalogLessonAsStartingPoint(lesson)} className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-700">
+                      Взять за основу
                     </button>
                     <Link href={`/lessons/${lesson.id}`} className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-700">
                       Открыть урок
@@ -500,11 +1072,35 @@ export function TeacherWorkspace() {
               ))}
             </div>
 
+            {totalLessonPages > 1 && (
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-sm text-slate-600">Показываем по {LESSONS_PER_PAGE} урока на страницу.</p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setLessonPage((current) => Math.max(1, current - 1))}
+                    disabled={lessonPage === 1}
+                    className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                  >
+                    Назад
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLessonPage((current) => Math.min(totalLessonPages, current + 1))}
+                    disabled={lessonPage === totalLessonPages}
+                    className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    Вперёд
+                  </button>
+                </div>
+              </div>
+            )}
+
             {teacherLessons.length === 0 && (
               <p className="mt-4 text-sm text-slate-500">Пока нет авторских уроков. Создайте первый урок выше.</p>
             )}
           </section>
-          <form onSubmit={createAssignment} className="codequest-card p-6">
+          <form id="assignment-builder" onSubmit={createAssignment} className="codequest-card p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-bold uppercase tracking-[0.2em] text-emerald-600">Назначить задание</p>
@@ -550,7 +1146,7 @@ export function TeacherWorkspace() {
                 ))}
               </select>
               <input className="rounded-2xl border border-slate-200 px-4 py-3" type="date" value={assignmentForm.due_date} onChange={(e) => setAssignmentForm({ ...assignmentForm, due_date: e.target.value })} />
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <select className="rounded-2xl border border-slate-200 px-4 py-3" value={assignmentForm.difficulty} onChange={(e) => setAssignmentForm({ ...assignmentForm, difficulty: e.target.value as Difficulty })}>
                   <option value="easy">easy</option>
                   <option value="medium">medium</option>
@@ -561,9 +1157,9 @@ export function TeacherWorkspace() {
                     <option key={item.value} value={item.value}>{item.label}</option>
                   ))}
                 </select>
-                <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder="XP" value={assignmentForm.xp_reward} onChange={(e) => setAssignmentForm({ ...assignmentForm, xp_reward: e.target.value })} />
               </div>
             </div>
+            <p className="mt-3 text-sm text-slate-500">За задания учителя XP не начисляется. Учитель проверяет ответ вручную.</p>
 
             <p className="mt-6 text-sm font-bold uppercase tracking-[0.18em] text-slate-500">3. Содержание и ожидания</p>
             <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -617,10 +1213,40 @@ export function TeacherWorkspace() {
                         <p className="text-lg font-black text-slate-900">@{submission.student_username}</p>
                         <p className="text-sm text-slate-500">{new Date(submission.submitted_at).toLocaleString('ru-RU')}</p>
                       </div>
-                      <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-700">{submission.score}%</span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`rounded-full px-3 py-1 text-sm font-semibold ${
+                          submission.status === 'checked'
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : submission.status === 'needs_revision'
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-sky-100 text-sky-700'
+                        }`}>{SUBMISSION_STATUS_LABELS[submission.status]}</span>
+                        <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-700">{submission.score}%</span>
+                      </div>
                     </div>
-                    <pre className="mt-3 overflow-auto rounded-2xl bg-slate-950 p-4 text-xs leading-6 text-emerald-200">{submission.answer}</pre>
-                    <textarea defaultValue={submission.feedback || ''} onBlur={(e) => gradeSubmission(submission.id, submission.score, e.target.value)} className="mt-3 min-h-24 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3" placeholder="Комментарий ученику" />
+                    <pre className="mt-3 overflow-auto rounded-2xl bg-slate-950 p-4 text-xs leading-6 text-emerald-200">{submission.answer || 'Ученик пока не приложил текст ответа.'}</pre>
+                    <textarea
+                      value={feedbackDrafts[submission.id] ?? ''}
+                      onChange={(e) => setFeedbackDrafts((current) => ({ ...current, [submission.id]: e.target.value }))}
+                      className="mt-3 min-h-24 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3"
+                      placeholder="Комментарий ученику"
+                    />
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => gradeSubmission(submission.id, 'checked', submission.score, feedbackDrafts[submission.id])}
+                        className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white"
+                      >
+                        Верно
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => gradeSubmission(submission.id, 'needs_revision', submission.score, feedbackDrafts[submission.id])}
+                        className="rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-white"
+                      >
+                        Неверно
+                      </button>
+                    </div>
                   </div>
                 ))}
                 {selectedAssignmentId && submissions.length === 0 && <p className="text-sm text-slate-500">У этого задания пока нет сдач.</p>}

@@ -7,6 +7,22 @@ import { DashboardData } from '@/types'
 import { RolePill } from '@/components/role-pill'
 import { StatCard } from '@/components/stat-card'
 
+function lessonStateLabel(state?: string | null) {
+  if (state === 'completed') return 'Завершён'
+  if (state === 'current') return 'В работе'
+  if (state === 'open') return 'Доступен'
+  if (state === 'locked') return 'Закрыт'
+  return null
+}
+
+function submissionStatusLabel(status?: string) {
+  if (status === 'pending_review') return 'Ожидает проверки'
+  if (status === 'checked') return 'Проверено: верно'
+  if (status === 'needs_revision') return 'Нужно исправить'
+  if (status === 'submitted') return 'Ответ отправлен'
+  return 'Ждёт выполнения'
+}
+
 export function DashboardView() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [error, setError] = useState('')
@@ -168,11 +184,10 @@ export function DashboardView() {
                   <p className="mt-3 text-sm leading-6 text-slate-600">{assignment.description}</p>
 
                   <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold text-slate-600">
-                    <span className="rounded-full bg-slate-50 px-3 py-1">XP {assignment.xp_reward}</span>
                     <span className="rounded-full bg-slate-50 px-3 py-1">Срок: {assignment.due_date || 'без срока'}</span>
                     <span className="rounded-full bg-violet-50 px-3 py-1 text-violet-700">{assignment.assignment_type_label}</span>
                     {assignment.lesson?.title && <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-700">Урок: {assignment.lesson.title}</span>}
-                    {assignment.lesson_state && <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">Статус: {assignment.lesson_state}</span>}
+                    {assignment.lesson_state && <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">Статус: {lessonStateLabel(assignment.lesson_state)}</span>}
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-2">
@@ -187,7 +202,13 @@ export function DashboardView() {
                     )}
 
                     {assignment.submission ? (
-                      <span className="rounded-full bg-emerald-100 px-4 py-2 text-sm font-semibold text-emerald-700">Ответ отправлен</span>
+                      <span className={`rounded-full px-4 py-2 text-sm font-semibold ${
+                        assignment.submission.status === 'needs_revision'
+                          ? 'bg-amber-100 text-amber-700'
+                          : assignment.submission.status === 'checked'
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-sky-100 text-sky-700'
+                      }`}>{submissionStatusLabel(assignment.submission.status)}</span>
                     ) : (
                       <span className="rounded-full bg-amber-100 px-4 py-2 text-sm font-semibold text-amber-700">Ждёт выполнения</span>
                     )}

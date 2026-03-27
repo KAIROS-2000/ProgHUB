@@ -1,6 +1,7 @@
 'use client'
 
 import { clearTokens, getAccessToken } from '@/lib/storage'
+import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
@@ -67,12 +68,19 @@ export function SiteHeader() {
 		<header className='sticky top-0 z-50 border-b border-white/60 bg-white/70 backdrop-blur-xl'>
 			<div className='mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-4'>
 				<Link href='/' className='flex items-center gap-3'>
-					<div className='flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-600 text-lg font-black text-white shadow-lg shadow-sky-200'>
-						CQ
+					<div className='flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-white shadow-lg shadow-sky-200 ring-1 ring-sky-100'>
+						<Image
+							src='/kodiums-logo.png'
+							alt='Логотип Кодиумс'
+							width={44}
+							height={44}
+							className='h-11 w-11 rounded-full object-cover'
+							priority
+						/>
 					</div>
 					<div>
 						<p className='text-xs font-bold uppercase tracking-[0.26em] text-sky-600'>
-							CodeQuest
+							Кодиумс
 						</p>
 						<h1 className='text-lg font-black text-slate-900'>
 							Обучающая платформа
