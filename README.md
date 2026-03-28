@@ -3,6 +3,7 @@
 Полноценный fullstack‑сайт для обучения программированию по методичке Кодиумс и вашим уточнениям по ролям.
 
 ## Что реализовано
+
 - регистрация и вход с JWT access + refresh
 - роли: `student`, `teacher`, `admin`, `superadmin`
 - суперадмин создаётся автоматически при старте по `.env`
@@ -17,24 +18,28 @@
 - Docker Compose для фронтенда, бэкенда, PostgreSQL и изолированного `judge-runner`
 
 ## Актуальный стек
+
 - Backend: Flask + Flask-SQLAlchemy + PostgreSQL + PyJWT
 - Frontend: Next.js + React + Tailwind CSS + GSAP
 - Учебные инструменты: Monaco Editor, текстовые и кодовые практики
 
 ## Быстрый старт
+
 ```bash
+
 cp .env.example .env
-# отредактировать обязательные значения (SECRET_KEY, SUPERADMIN_PASSWORD и т.д.)
 
 docker compose up --build
 ```
 
 После запуска:
+
 - Frontend: http://localhost:3000
 - Backend API: http://localhost:8000/api
 - `judge-runner` поднимается внутри Docker-сети и не публикует порт наружу
 
 ## Production режим
+
 - по умолчанию проект запускается в production-конфигурации:
   - `APP_ENV=production`
   - `ENABLE_DEMO_DATA=false`
@@ -43,6 +48,7 @@ docker compose up --build
 - если в `APP_ENV=production` оставлен слабый `SECRET_KEY` (`dev-secret-key` или `super-secret-key-change-me`), backend завершит запуск с ошибкой
 
 ## Автопроверка кода
+
 - в конструкторе teacher-урока для практики можно выбрать:
 - `Ручная проверка`
 - `Авто по ориентирам` для текстовых ответов
@@ -65,6 +71,7 @@ CODE_JUDGE_ALLOW_LOCAL_FALLBACK=true
 ```
 
 ## Тестовые данные (только для локальной проверки)
+
 Если нужно поднять демо-аккаунты и тестовые сценарии, добавьте в `.env`:
 
 ```env
@@ -80,11 +87,13 @@ DEMO_PARENT_CODE=PAR-DEMO2026
 ```
 
 Тогда будут доступны сценарии:
+
 - вход под тестовыми пользователями выше
 - вступление ученика в класс по коду `CLASS5B`
 - родительский кабинет по адресу `/parent/PAR-DEMO2026`
 
 ## Структура
+
 ```text
 backend/
   app/
@@ -99,6 +108,7 @@ frontend/
 ```
 
 ## Ключевые маршруты API
+
 - `POST /api/auth/register`
 - `POST /api/auth/login`
 - `POST /api/auth/refresh`
@@ -119,6 +129,7 @@ frontend/
 - `DELETE /api/admin/admins/<id>`
 
 ## Что можно доработать дальше
+
 - более умная проверка текстовых ответов
 - песочница исполнения Python/JS в Web Worker
 - отдельный профиль‑редактор с аватарами и dark mode

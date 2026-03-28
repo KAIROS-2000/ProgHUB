@@ -1042,8 +1042,8 @@ export function TeacherWorkspace() {
               </div>
             </div>
 
-            <div className="grid gap-6 p-6 xl:grid-cols-[minmax(0,1.15fr)_320px]">
-              <div className="min-w-0 space-y-5">
+            <div className="flex flex-wrap items-start gap-6 p-6">
+              <div className="min-w-0 flex-[999_1_46rem] space-y-5">
                 <div className="rounded-[26px] border border-slate-200 bg-slate-50/80 p-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
@@ -1258,7 +1258,7 @@ export function TeacherWorkspace() {
                 </div>
               </div>
 
-              <aside className="min-w-0 space-y-4">
+              <aside className="min-w-0 flex-[1_1_320px] space-y-4">
                 <div className="rounded-[26px] border border-slate-900 bg-slate-900 p-5 text-white">
                   <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Готовность черновика</p>
                   <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">

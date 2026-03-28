@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, type FormEvent } from 'react'
+import { AdminLessonComposer } from '@/components/admin-lesson-composer'
 import { api } from '@/lib/api'
 import { ModuleItem, UserItem } from '@/types'
 
@@ -22,6 +23,8 @@ export function AdminWorkspace({ superMode = false }: { superMode?: boolean }) {
   const [message, setMessage] = useState('')
   const [moduleForm, setModuleForm] = useState({ slug: '', title: '', description: '', age_group: 'middle', color: '#4A90D9' })
   const [adminForm, setAdminForm] = useState({ full_name: '', email: '', username: '', password: '' })
+  const messageIsError = /^не удалось|^ошибка/i.test(message.trim())
+  const roadmapModules = modules.filter((module) => !module.is_custom_classroom_module)
 
   async function load() {
     const [overviewData, modulesData] = await Promise.all([
@@ -75,7 +78,7 @@ export function AdminWorkspace({ superMode = false }: { superMode?: boolean }) {
 
   return (
     <div className="space-y-6">
-      {message && <div className="codequest-card bg-emerald-50 p-4 text-sm font-semibold text-emerald-700">{message}</div>}
+      {message && <div className={`codequest-card p-4 text-sm font-semibold ${messageIsError ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}>{message}</div>}
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {overview && Object.entries(overview.stats).map(([label, value]) => (
@@ -106,6 +109,8 @@ export function AdminWorkspace({ superMode = false }: { superMode?: boolean }) {
             <button className="mt-4 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Создать модуль</button>
           </form>
 
+          <AdminLessonComposer modules={roadmapModules} onMessage={setMessage} onReload={load} />
+
           {superMode && (
             <form onSubmit={createAdmin} className="codequest-card p-6">
               <p className="text-sm font-bold uppercase tracking-[0.2em] text-rose-600">Создать администратора</p>
@@ -126,12 +131,12 @@ export function AdminWorkspace({ superMode = false }: { superMode?: boolean }) {
           <section className="codequest-card p-6">
             <p className="text-sm font-bold uppercase tracking-[0.2em] text-violet-600">Каталог модулей</p>
             <div className="mt-4 space-y-3">
-              {modules.map((module) => (
+              {roadmapModules.map((module) => (
                 <div key={module.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="text-lg font-black text-slate-900">{module.title}</p>
-                      <p className="text-sm text-slate-500">{module.age_group} · {module.lessons.length} уроков</p>
+                      <p className="text-sm text-slate-500">{module.age_group} · {module.lessons.length} уроков · {module.is_published ? 'в roadmap' : 'скрыт'}</p>
                     </div>
                     <button onClick={() => toggleModule(module.id, module.is_published)} className={`rounded-full px-4 py-2 text-sm font-semibold ${module.is_published ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-900 text-white'}`}>
                       {module.is_published ? 'Снять с публикации' : 'Опубликовать'}

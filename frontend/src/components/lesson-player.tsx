@@ -1,10 +1,9 @@
 'use client'
-
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import Editor from '@monaco-editor/react'
 import { api } from '@/lib/api'
-import { JudgeReport, LessonDetail, ProgressItem, QuizItem, QuizQuestion } from '@/types'
+import { JudgeReport, LessonDetail, LessonSummary, ProgressItem, QuizItem, QuizQuestion } from '@/types'
 
 function moveItem(list: string[], from: number, to: number) {
   const next = [...list]
@@ -169,6 +168,7 @@ function QuestionCard({ question, value, onChange, number }: { question: QuizQue
 export function LessonPlayer({ lessonId }: { lessonId: number }) {
   const router = useRouter()
   const [lesson, setLesson] = useState<LessonDetail | null>(null)
+  const [moduleLessons, setModuleLessons] = useState<LessonSummary[]>([])
   const [error, setError] = useState('')
   const [answer, setAnswer] = useState('')
   const [quizAnswers, setQuizAnswers] = useState<Record<string, unknown>>({})
@@ -190,6 +190,7 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
     api<{ lesson: LessonDetail; progress: ProgressItem }>(`/lessons/${lessonId}`, undefined, true)
       .then((data) => {
         setLesson(data.lesson)
+        setModuleLessons([])
         setProgress(data.progress)
         setAnswer('')
         setQuizAnswers({})
@@ -202,6 +203,10 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
         setResult('')
         setResultTone('neutral')
         setJudgeReport(null)
+
+        api<{ lessons: LessonSummary[] }>(`/modules/${data.lesson.module.id}/lessons`, undefined, true)
+          .then((moduleData) => setModuleLessons(moduleData.lessons || []))
+          .catch(() => setModuleLessons([]))
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Не удалось загрузить урок'))
   }, [lessonId])
@@ -237,6 +242,20 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
   const completedStepsCount = learningSteps.filter((step) => step.completed).length
   const progressPercent = Math.round((completedStepsCount / learningSteps.length) * 100)
   const progressStatusLabel = lessonStatusLabel(progress?.status)
+  const orderedModuleLessons = useMemo(
+    () => [...moduleLessons].sort((left, right) => left.order_index - right.order_index),
+    [moduleLessons],
+  )
+  const currentLessonIndex = orderedModuleLessons.findIndex((item) => item.id === lessonId)
+  const nextLesson = currentLessonIndex >= 0 ? orderedModuleLessons[currentLessonIndex + 1] || null : null
+  const lessonLooksCompleted = progressPercent === 100 || progress?.status === 'completed' || progress?.status === 'pending_review'
+  const completionHeading = lessonLooksCompleted ? 'Урок завершен!' : 'Завершить урок?'
+  const completionDescription = lessonLooksCompleted
+    ? 'Отличная работа! Ты справился со всеми частями урока и можешь двигаться дальше.'
+    : lessonNeedsTeacherReview
+      ? 'Сохраним прогресс, отправим урок учителю на проверку и поможем перейти дальше.'
+      : 'Сохраним текущий прогресс урока и поможем быстро перейти к следующему шагу.'
+  const nextActionLabel = nextLesson ? 'Следующий урок' : 'В профиль'
 
   function jumpTo(id: string) {
     if (typeof document === 'undefined') return
@@ -295,7 +314,7 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
     }
   }
 
-  async function finishLesson() {
+  async function finishLesson(destination?: string) {
     setSavingCompletion(true)
     try {
       const data = await api<{ message: string; progress: ProgressItem; redirect_url: string }>(`/lessons/${lessonId}/complete`, {
@@ -305,7 +324,7 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
       setProgress(data.progress)
       setResult(data.message)
       setResultTone(data.progress.status === 'completed' || data.progress.status === 'pending_review' ? 'success' : 'neutral')
-      router.push(data.redirect_url || '/profile')
+      router.push(destination || data.redirect_url || '/profile')
     } catch (e) {
       setResult(e instanceof Error ? e.message : 'Не удалось завершить урок.')
       setResultTone('warning')
@@ -360,26 +379,6 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
               </button>
             ))}
           </div>
-          <div className="mt-4 rounded-2xl bg-slate-50 px-3 py-3 text-sm text-slate-600">
-            Статус урока: <span className="font-semibold text-slate-900">{progressStatusLabel}</span>
-          </div>
-        </section>
-
-        <section className="codequest-card p-5">
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Завершение</p>
-          <p className="mt-3 text-sm leading-6 text-slate-600">
-            {lessonNeedsTeacherReview
-              ? 'Кнопка отправит урок учителю на проверку и вернёт тебя на страницу профиля.'
-              : 'Кнопка сохранит текущий процент выполнения урока и вернёт тебя на страницу профиля.'}
-          </p>
-          <button
-            type="button"
-            disabled={savingCompletion}
-            onClick={finishLesson}
-            className="mt-4 w-full rounded-full bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            {savingCompletion ? 'Сохраняем и возвращаем...' : lessonNeedsTeacherReview ? 'Отправить на проверку' : 'Завершить урок'}
-          </button>
         </section>
 
         {result && <section className={`codequest-card p-4 text-sm font-semibold ${resultClass}`}>{result}</section>}
@@ -635,6 +634,62 @@ export function LessonPlayer({ lessonId }: { lessonId: number }) {
             <p className="text-sm text-slate-500">Для этого урока квиз не добавлен.</p>
           </article>
         )}
+
+        <section className="lesson-completion-shell codequest-card overflow-hidden p-0">
+          <div className="lesson-completion-glow" aria-hidden="true" />
+          <div className="relative px-5 py-6 sm:px-8 sm:py-8">
+            <div className="flex flex-col items-center text-center">
+              <div className="lesson-completion-badge">
+                <span className="text-lg font-black text-slate-900">100%</span>
+              </div>
+              <p className="mt-5 text-xs font-bold uppercase tracking-[0.28em] text-slate-500">Завершение</p>
+              <h3 className="mt-3 text-3xl font-black tracking-tight text-slate-900 sm:text-4xl">{completionHeading}</h3>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600 sm:text-base">
+                {completionDescription}
+              </p>
+            </div>
+
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+              <div className="rounded-full border border-slate-200 bg-white/80 px-4 py-2 text-sm text-slate-600 backdrop-blur">
+                Статус урока: <span className="font-semibold text-slate-900">{progressStatusLabel}</span>
+              </div>
+              <div className="rounded-full border border-sky-100 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700">
+                Прогресс {progressPercent}%
+              </div>
+              {nextLesson && (
+                <div className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">
+                  Далее: {nextLesson.title}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-8 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                disabled={savingCompletion}
+                onClick={() => finishLesson('/roadmap')}
+                className="flex min-h-14 items-center justify-center rounded-[20px] bg-slate-900 px-5 py-4 text-base font-semibold text-white disabled:opacity-50"
+              >
+                {savingCompletion ? 'Сохраняем...' : 'Перейти на RoadMap'}
+              </button>
+              <button
+                type="button"
+                disabled={savingCompletion}
+                onClick={() => finishLesson(nextLesson ? `/lessons/${nextLesson.id}` : '/profile')}
+                className="flex min-h-14 items-center justify-center rounded-[20px] bg-sky-600 px-5 py-4 text-base font-semibold text-white disabled:opacity-50"
+              >
+                {savingCompletion ? 'Сохраняем...' : nextActionLabel}
+              </button>
+            </div>
+
+            {!nextLesson && (
+              <p className="mt-4 text-center text-sm text-slate-500">
+                В этом модуле это последний урок. После сохранения откроется профиль.
+              </p>
+            )}
+
+          </div>
+        </section>
       </section>
     </div>
   )

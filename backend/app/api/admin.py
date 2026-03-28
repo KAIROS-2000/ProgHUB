@@ -4,11 +4,265 @@ from flask import Blueprint, request
 
 from ..core.db import db
 from ..core.security import auth_required, hash_password
-from ..models.learning import ForumPost, Lesson, Module
+from ..models.learning import ForumPost, Lesson, Module, Quiz, Task, age_group_supports_code, normalize_task_validation
 from ..models.user import User, UserRole
+from ..seed.bootstrap import generate_code
 
 
 admin_bp = Blueprint('admin', __name__)
+VALID_QUIZ_QUESTION_TYPES = {'single', 'multiple', 'order', 'match', 'text'}
+
+
+def _safe_int(value, default: int, minimum: int | None = None, maximum: int | None = None) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    if minimum is not None:
+        parsed = max(parsed, minimum)
+    if maximum is not None:
+        parsed = min(parsed, maximum)
+    return parsed
+
+
+def _string_list(value) -> list[str]:
+    if isinstance(value, str):
+        return [item.strip() for item in value.splitlines() if item.strip()]
+    if not isinstance(value, list):
+        return []
+    rows: list[str] = []
+    for item in value:
+        text = str(item or '').strip()
+        if text:
+            rows.append(text)
+    return rows
+
+
+def _split_csv(value: str | None) -> list[str]:
+    return [item.strip() for item in (value or '').replace('\n', ',').split(',') if item.strip()]
+
+
+def _normalized_test_cases(value) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    rows: list[dict] = []
+    for index, item in enumerate(value, start=1):
+        if not isinstance(item, dict):
+            continue
+        test_input = str(item.get('input') if item.get('input') is not None else item.get('stdin') or '')
+        expected = str(item.get('expected') if item.get('expected') is not None else item.get('stdout') or '')
+        label = str(item.get('label') or f'Тест {index}').strip() or f'Тест {index}'
+        if not test_input and not expected:
+            continue
+        rows.append({'label': label, 'input': test_input, 'expected': expected})
+    return rows
+
+
+def _normalize_module_lessons(module: Module) -> list[Lesson]:
+    ordered = sorted(module.lessons, key=lambda lesson: (lesson.order_index, lesson.id))
+    for index, lesson in enumerate(ordered, start=1):
+        lesson.order_index = index
+    db.session.flush()
+    return ordered
+
+
+def _insert_position(module: Module, raw_position) -> int:
+    ordered = _normalize_module_lessons(module)
+    position = _safe_int(raw_position, len(ordered) + 1, minimum=1, maximum=len(ordered) + 1)
+    for lesson in ordered[position - 1:]:
+        lesson.order_index += 1
+    return position
+
+
+def _build_theory_blocks(title: str, summary: str, theory_text: str, key_points: list[str]) -> list[dict]:
+    blocks = [{'type': 'hero', 'title': title, 'text': summary}]
+    if theory_text:
+        blocks.append({'type': 'text', 'title': 'Объяснение', 'text': theory_text})
+    if key_points:
+        blocks.append({'type': 'list', 'title': 'Ключевые идеи', 'items': key_points})
+    return blocks
+
+
+def _build_interactive_steps(raw_steps) -> list[dict]:
+    return [
+        {'title': f'Шаг {index}', 'text': item}
+        for index, item in enumerate(_string_list(raw_steps), start=1)
+    ]
+
+
+def _generate_module_lesson_slug(module: Module) -> str:
+    while True:
+        slug = f'{module.slug}-lesson-{generate_code(6).lower()}'
+        if Lesson.query.filter_by(slug=slug).first() is None:
+            return slug
+
+
+def _normalize_quiz_questions(raw_questions) -> list[dict]:
+    if not isinstance(raw_questions, list):
+        return []
+
+    normalized: list[dict] = []
+    for index, item in enumerate(raw_questions, start=1):
+        if not isinstance(item, dict):
+            continue
+        qtype = str(item.get('type') or 'single').strip().lower()
+        prompt = str(item.get('prompt') or '').strip()
+        if qtype not in VALID_QUIZ_QUESTION_TYPES or not prompt:
+            continue
+
+        question_id = f'admin-q{index}'
+
+        if qtype in {'single', 'multiple'}:
+            options = _string_list(item.get('options'))
+            if len(options) < 2:
+                continue
+            raw_correct = item.get('correct')
+            raw_indices = raw_correct if isinstance(raw_correct, list) else [raw_correct]
+            correct_indices: list[int] = []
+            for raw_value in raw_indices:
+                try:
+                    parsed = int(raw_value)
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= parsed < len(options) and parsed not in correct_indices:
+                    correct_indices.append(parsed)
+            if qtype == 'single':
+                if len(correct_indices) != 1:
+                    continue
+                correct = [correct_indices[0]]
+            else:
+                if not correct_indices:
+                    continue
+                correct = sorted(correct_indices)
+            normalized.append({
+                'id': question_id,
+                'type': qtype,
+                'prompt': prompt,
+                'options': options,
+                'correct': correct,
+            })
+            continue
+
+        if qtype == 'order':
+            items = _string_list(item.get('items'))
+            correct = _string_list(item.get('correct'))
+            if len(items) < 2 or len(correct) != len(items) or sorted(correct) != sorted(items):
+                continue
+            normalized.append({
+                'id': question_id,
+                'type': qtype,
+                'prompt': prompt,
+                'items': items,
+                'correct': correct,
+            })
+            continue
+
+        if qtype == 'match':
+            raw_pairs = item.get('pairs')
+            if not isinstance(raw_pairs, list):
+                continue
+            pairs: list[tuple[str, str]] = []
+            right_values: list[str] = []
+            correct_map: dict[str, str] = {}
+            for pair in raw_pairs:
+                if not isinstance(pair, dict):
+                    continue
+                left = str(pair.get('left') or '').strip()
+                right = str(pair.get('right') or '').strip()
+                if not left or not right or left in correct_map:
+                    continue
+                correct_map[left] = right
+                pairs.append((left, right))
+                if right not in right_values:
+                    right_values.append(right)
+            if len(pairs) < 2 or len(right_values) < 2:
+                continue
+            normalized.append({
+                'id': question_id,
+                'type': qtype,
+                'prompt': prompt,
+                'left': [left for left, _ in pairs],
+                'right': right_values,
+                'correct': correct_map,
+            })
+            continue
+
+        if qtype == 'text':
+            correct_answers = _string_list(item.get('correct'))
+            if not correct_answers:
+                continue
+            normalized.append({
+                'id': question_id,
+                'type': qtype,
+                'prompt': prompt,
+                'correct': correct_answers,
+            })
+
+    return normalized
+
+
+def _build_task(lesson: Lesson, raw_task, lesson_title: str) -> Task | None:
+    if not isinstance(raw_task, dict) or not raw_task.get('enabled'):
+        return None
+
+    age_group = lesson.module.age_group
+    requested_task_type = 'code' if str(raw_task.get('task_type') or '').strip().lower() == 'code' else 'text'
+    if requested_task_type == 'code' and not age_group_supports_code(age_group):
+        raise ValueError('Для Junior-модуля кодовая практика недоступна. Выберите текстовое задание или квиз.')
+
+    evaluation_mode = str(raw_task.get('evaluation_mode') or '').strip().lower()
+    keywords = _split_csv(raw_task.get('keywords'))
+    tests = _normalized_test_cases(raw_task.get('tests'))
+    task_validation = normalize_task_validation(
+        {
+            'evaluation_mode': evaluation_mode,
+            'language': raw_task.get('language'),
+            'keywords': keywords,
+            'tests': tests,
+            'time_limit_ms': raw_task.get('time_limit_ms'),
+            'memory_limit_mb': raw_task.get('memory_limit_mb'),
+        },
+        is_custom_lesson=False,
+        task_type=requested_task_type,
+        age_group=age_group,
+    )
+
+    if requested_task_type == 'code' and not task_validation['tests']:
+        raise ValueError('Для кодового задания добавьте хотя бы один тест с входом и ожидаемым выводом.')
+    if task_validation['evaluation_mode'] == 'keywords' and not task_validation['keywords']:
+        raise ValueError('Для автопроверки по ключевым словам добавьте хотя бы одно ключевое слово.')
+    if task_validation['evaluation_mode'] == 'stdin_stdout' and not task_validation['tests']:
+        raise ValueError('Для автопроверки добавьте хотя бы один тест с ожидаемым результатом.')
+
+    task_type = 'code' if requested_task_type == 'code' or task_validation['evaluation_mode'] == 'stdin_stdout' else 'text'
+    hints = _string_list(raw_task.get('hints'))
+    return Task(
+        lesson_id=lesson.id,
+        task_type=task_type,
+        title=str(raw_task.get('title') or '').strip() or f'Практика: {lesson_title}',
+        prompt=str(raw_task.get('prompt') or '').strip() or 'Выполни практическое задание по теме урока.',
+        starter_code=str(raw_task.get('starter_code') or '') if task_type == 'code' else '',
+        validation=task_validation,
+        hints=hints,
+        xp_reward=_safe_int(raw_task.get('xp_reward'), 30, minimum=0, maximum=500),
+    )
+
+
+def _build_quiz(lesson: Lesson, raw_quiz, lesson_title: str) -> Quiz | None:
+    if not isinstance(raw_quiz, dict) or not raw_quiz.get('enabled'):
+        return None
+
+    questions = _normalize_quiz_questions(raw_quiz.get('questions'))
+    if not questions:
+        raise ValueError('Добавьте хотя бы один корректный вопрос в итоговый квиз.')
+
+    return Quiz(
+        lesson_id=lesson.id,
+        title=str(raw_quiz.get('title') or '').strip() or f'Квиз: {lesson_title}',
+        passing_score=_safe_int(raw_quiz.get('passing_score'), 70, minimum=0, maximum=100),
+        questions=questions,
+        xp_reward=_safe_int(raw_quiz.get('xp_reward'), 50, minimum=0, maximum=500),
+    )
 
 
 @admin_bp.get('/overview')
@@ -71,6 +325,62 @@ def update_module(current_user: User, module_id: int):
         module.is_published = bool(data['is_published'])
     db.session.commit()
     return {'module': module.to_dict()}
+
+
+@admin_bp.post('/modules/<int:module_id>/lessons')
+@auth_required([UserRole.ADMIN, UserRole.SUPERADMIN])
+def create_module_lesson(current_user: User, module_id: int):
+    module = Module.query.get_or_404(module_id)
+    if module.is_custom_classroom_module:
+        return {'message': 'Через админку можно добавлять уроки только в общие roadmap-модули.'}, 400
+
+    data = request.get_json() or {}
+    title = str(data.get('title') or '').strip()
+    summary = str(data.get('summary') or '').strip()
+    if not title or not summary:
+        return {'message': 'Укажите название и краткое описание урока.'}, 400
+
+    theory_text = str(data.get('theory_text') or '').strip()
+    key_points = _string_list(data.get('key_points'))
+    interactive_steps = _build_interactive_steps(data.get('interactive_steps'))
+    order_index = _insert_position(module, data.get('insert_position'))
+
+    if bool(data.get('publish_module_if_needed')) and not module.is_published:
+        module.is_published = True
+
+    lesson = Lesson(
+        module_id=module.id,
+        slug=_generate_module_lesson_slug(module),
+        title=title,
+        summary=summary,
+        content_format='mixed',
+        theory_blocks=_build_theory_blocks(title, summary, theory_text, key_points),
+        interactive_steps=interactive_steps,
+        order_index=order_index,
+        duration_minutes=_safe_int(data.get('duration_minutes'), 10, minimum=5, maximum=180),
+        passing_score=_safe_int(data.get('passing_score'), 70, minimum=0, maximum=100),
+        is_published=True,
+    )
+    db.session.add(lesson)
+    db.session.flush()
+
+    try:
+        task = _build_task(lesson, data.get('task'), title)
+        if task is not None:
+            db.session.add(task)
+        quiz = _build_quiz(lesson, data.get('quiz'), title)
+        if quiz is not None:
+            db.session.add(quiz)
+    except ValueError as exc:
+        db.session.rollback()
+        return {'message': str(exc)}, 400
+
+    db.session.commit()
+    return {
+        'lesson': lesson.to_dict(),
+        'roadmap_visible': bool(module.is_published and lesson.is_published),
+        'module': module.to_dict(include_lessons=True),
+    }, 201
 
 
 @admin_bp.post('/admins')

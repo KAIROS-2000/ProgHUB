@@ -351,6 +351,75 @@ html[data-theme='dark'] :is(input, select, textarea)[class*='border-']:focus {
   display: none;
 }
 
+.lesson-completion-shell {
+  position: relative;
+  border-color: rgba(148, 163, 184, 0.28);
+  background:
+    radial-gradient(circle at top center, rgba(59, 130, 246, 0.12), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(34, 197, 94, 0.1), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 250, 252, 0.98) 100%);
+}
+
+.lesson-completion-glow {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 16% 18%, rgba(34, 197, 94, 0.18), transparent 18%),
+    radial-gradient(circle at 84% 20%, rgba(59, 130, 246, 0.18), transparent 18%),
+    radial-gradient(circle at 50% 100%, rgba(15, 23, 42, 0.06), transparent 32%);
+  pointer-events: none;
+}
+
+.lesson-completion-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 5.5rem;
+  height: 5.5rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(125, 211, 252, 0.4);
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.9), rgba(224, 242, 254, 0.85) 44%, rgba(186, 230, 253, 0.9) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 20px 45px rgba(59, 130, 246, 0.18);
+}
+
+html[data-theme='dark'] .lesson-completion-shell {
+  border-color: rgba(48, 54, 61, 0.95);
+  background:
+    radial-gradient(circle at top center, rgba(31, 111, 235, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(35, 134, 54, 0.14), transparent 30%),
+    linear-gradient(180deg, rgba(22, 27, 34, 0.98) 0%, rgba(13, 17, 23, 0.98) 100%);
+}
+
+html[data-theme='dark'] .lesson-completion-glow {
+  background:
+    radial-gradient(circle at 14% 20%, rgba(63, 185, 80, 0.18), transparent 18%),
+    radial-gradient(circle at 86% 18%, rgba(47, 129, 247, 0.2), transparent 18%),
+    radial-gradient(circle at 50% 100%, rgba(1, 4, 9, 0.32), transparent 32%);
+}
+
+html[data-theme='dark'] .lesson-completion-badge {
+  border-color: rgba(56, 139, 253, 0.3);
+  background:
+    radial-gradient(circle at 30% 30%, rgba(240, 246, 252, 0.08), rgba(56, 139, 253, 0.14) 48%, rgba(35, 134, 54, 0.2) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(240, 246, 252, 0.08),
+    0 20px 45px rgba(1, 4, 9, 0.42);
+}
+
+html[data-theme='dark'] .lesson-completion-badge span {
+  color: #f0f6fc !important;
+}
+
+@media (max-width: 640px) {
+  .lesson-completion-badge {
+    width: 4.75rem;
+    height: 4.75rem;
+  }
+}
+
 button,
 input,
 select,

@@ -58,6 +58,8 @@ export interface ModuleItem {
   color: string
   order_index: number
   is_published: boolean
+  is_custom_classroom_module?: boolean
+  custom_classroom_id?: number | null
   lessons: LessonSummary[]
 }
 
