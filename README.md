@@ -58,34 +58,6 @@ docker compose up --build
 - runner запускает код в собственной временной директории, с таймаутом, лимитом памяти и сокращённым окружением
 - backend может использовать локальный fallback только если это явно разрешено через `CODE_JUDGE_ALLOW_LOCAL_FALLBACK=true`
 
-Поддерживаемые настройки `.env`:
-
-```env
-CODE_JUDGE_PYTHON_BIN=python
-CODE_JUDGE_NODE_BIN=node
-CODE_JUDGE_DEFAULT_TIME_LIMIT_MS=2000
-CODE_JUDGE_DEFAULT_MEMORY_LIMIT_MB=128
-CODE_JUDGE_MAX_OUTPUT_CHARS=4000
-CODE_JUDGE_RUNNER_TIMEOUT_MS=15000
-CODE_JUDGE_ALLOW_LOCAL_FALLBACK=true
-```
-
-## Тестовые данные (только для локальной проверки)
-
-Если нужно поднять демо-аккаунты и тестовые сценарии, добавьте в `.env`:
-
-```env
-ENABLE_DEMO_DATA=true
-DEMO_STUDENT_EMAIL=student@codequest.local
-DEMO_STUDENT_PASSWORD=Student123!
-DEMO_TEACHER_EMAIL=teacher@codequest.local
-DEMO_TEACHER_PASSWORD=Teacher123!
-DEMO_ADMIN_EMAIL=admin@codequest.local
-DEMO_ADMIN_PASSWORD=Admin123!
-DEMO_CLASS_CODE=CLASS5B
-DEMO_PARENT_CODE=PAR-DEMO2026
-```
-
 Тогда будут доступны сценарии:
 
 - вход под тестовыми пользователями выше
@@ -127,11 +99,3 @@ frontend/
 - `POST /api/admin/admins`
 - `PATCH /api/admin/admins/<id>/block`
 - `DELETE /api/admin/admins/<id>`
-
-## Что можно доработать дальше
-
-- более умная проверка текстовых ответов
-- песочница исполнения Python/JS в Web Worker
-- отдельный профиль‑редактор с аватарами и dark mode
-- звуки, confetti, daily chest, weekly leaderboard reset
-- миграции Alembic и e2e‑тесты
